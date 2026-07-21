@@ -1,3 +1,4 @@
+
 # SAT Builder Local Development Setup
 
 This document explains how to set up and run SAT Builder locally for development purposes.
@@ -12,7 +13,7 @@ The application starts with:
 python -m src
 ```
 
-A helper script is provided to simplify local setup. The script creates a virtual environment, installs dependencies, prepares local configuration, creates the logs directory, and starts the application.
+A helper script is provided to simplify local setup. The script creates a virtual environment, installs runtime and development dependencies, prepares local configuration, creates the logs directory, and starts the application.
 
 ## Requirements
 
@@ -37,9 +38,11 @@ Relevant local development files:
 ├── run_dev.sh
 ├── env.template
 ├── requirements.txt
+├── requirements-dev.txt
 ├── configs/
 ├── src/
 ├── templates/
+├── tests/
 └── logs/
 ```
 
@@ -65,7 +68,6 @@ Your local `.env` file should not be committed to Git.
 ## Setup script
 
 The local development script is named:
-
 ```text
 run_dev.sh
 ```
@@ -75,14 +77,16 @@ It performs the following steps:
 1. Creates a Python virtual environment in `.venv` if it does not already exist.
 2. Activates the virtual environment.
 3. Upgrades `pip`.
-4. Installs dependencies from `requirements.txt`.
-5. Creates `.env` from `env.template` if `.env` does not already exist.
-6. Creates the `logs/` directory.
-7. Starts the application with `python -m src`.
+4. Installs runtime dependencies from `requirements.txt`.
+5. Installs development dependencies from `requirements-dev.txt` if it exists.
+6. Creates `.env` from `env.template` if `.env` does not already exist.
+7. Creates the `logs/` directory.
+8. Starts the application with `python -m src`.
 
 ## Make the script executable
 
 Run this once:
+
 ```shell
 chmod +x run_dev.sh
 ```
@@ -90,6 +94,7 @@ chmod +x run_dev.sh
 ## Run the application locally
 
 Start the application with:
+
 ```shell
 ./run_dev.sh
 ```
@@ -97,6 +102,7 @@ Start the application with:
 The application should start using the values from `.env`.
 
 By default, the API should be available at:
+
 ```text
 http://localhost:8000
 ```
@@ -118,6 +124,7 @@ python3 -m venv .venv
 ```
 
 Activate it:
+
 ```shell
 source .venv/bin/activate
 ```
@@ -128,10 +135,16 @@ Upgrade `pip`:
 python -m pip install --upgrade pip
 ```
 
-Install dependencies:
+Install runtime dependencies:
 
 ```shell
 pip install -r requirements.txt
+```
+
+Install development dependencies:
+
+```shell
+pip install -r requirements-dev.txt
 ```
 
 Create `.env` from the template:
@@ -151,6 +164,24 @@ Run the application:
 ```shell
 python -m src
 ```
+
+## Running tests
+
+Development dependencies are installed from `requirements-dev.txt`, including `pytest`.
+
+Run tests with:
+
+```shell
+pytest
+```
+
+Or:
+
+```shell
+python -m pytest
+```
+
+For more detailed testing guidance, see: [`tests/README.md`](configs/README.md)
 
 ## Configuration
 
@@ -177,4 +208,4 @@ After changing `.env`, restart the application for changes to take effect.
 - Do not commit generated logs.
 - If dependencies change, rerun `./run_dev.sh` to reinstall them.
 - The application starts with `python -m src`, so the `src` package must be executable as a module.
-```
+
