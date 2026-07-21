@@ -33,7 +33,7 @@ The Template Builder is driven by two main areas:
 
 For more details, see:
 
-- [`config/README.md`](config/README.md)
+- [`configs/README.md`](configs/README.md)
 - [`templates/README.md`](templates/README.md)
 
 ### Configuration
@@ -80,3 +80,49 @@ At a high level:
 4. The API validates incoming requests.
 5. The selected Jinja template renders the final TOSCA output.
 6. The API returns the result as YAML, JSON, or both, depending on the configured response type.
+
+---
+
+## Docker Deployment
+
+SAT Builder can be built and run as a Docker container.
+
+The Docker image uses `python:3.12-slim`, installs the required Python dependencies, includes the Puccini TOSCA processor, and starts the application with:
+
+```shell
+python -m src
+```
+
+Build the image from the project root:
+
+```shell
+docker build -t sat-builder:1.0.0 .
+```
+
+Run the container locally:
+
+```shell
+docker run --rm -p 8000:8000 sat-builder:1.0.0
+```
+
+The API should then be available at:
+
+```text
+http://localhost:8000
+```
+
+The container uses `env.template` as the default runtime configuration by copying it into the image as `.env`. Local `.env` files are excluded from the Docker image.
+
+Runtime configuration can be overridden using environment variables:
+
+```shell
+docker run --rm -p 8000:8000 \
+  -e SERVER__LOG_LEVEL=debug \
+  sat-builder:1.0.0
+```
+
+For full Docker build, run, configuration, and publishing details, see:
+
+- [`DOCKER.md`](DOCKER.md)
+
+---
