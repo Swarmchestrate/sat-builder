@@ -31,6 +31,7 @@ Relevant Docker-related files:
 .
 ├── Dockerfile
 ├── docker-compose.yaml
+├── publish_docker.sh
 ├── .dockerignore
 ├── env.template
 ├── requirements.txt
@@ -106,19 +107,19 @@ LOGGING__USE_COLORS=true
 From the project root, run:
 
 ```shell
-docker build -t sat-builder:1.0.0 .
+docker build -t uowcpc/sat-builder:1.0.0 .
 ```
 
 You can also tag it as `latest`:
 
 ```shell
-docker build -t sat-builder:latest .
+docker build -t uowcpc/sat-builder:latest .
 ```
 
 Or build both tags at once:
 
 ```shell
-docker build -t sat-builder:1.0.0 -t sat-builder:latest .
+docker build -t uowcpc/sat-builder:1.0.0 -t uowcpc/sat-builder:latest .
 ```
 
 ## Run the container
@@ -126,7 +127,7 @@ docker build -t sat-builder:1.0.0 -t sat-builder:latest .
 Run the container locally:
 
 ```shell
-docker run --rm -p 8000:8000 sat-builder:1.0.0
+docker run --rm -p 8000:8000 uowcpc/sat-builder:1.0.0
 ```
 
 The application should be available at:
@@ -141,6 +142,18 @@ Start the service using the published image:
 
 ```shell
 docker compose up -d
+```
+
+Use a specific image version:
+
+```shell
+SAT_BUILDER_VERSION=1.0.0 docker compose up -d
+```
+
+Use a different Docker namespace:
+
+```shell
+DOCKER_NAMESPACE=my-user SAT_BUILDER_VERSION=1.0.0 docker compose up -d
 ```
 
 Pull the latest image and restart:
@@ -186,7 +199,7 @@ Example:
 docker run --rm -p 8000:8000 \
   -e SERVER__LOG_LEVEL=debug \
   -e CORS__ENABLED=true \
-  sat-builder:1.0.0
+  uowcpc/sat-builder:1.0.0
 ```
 
 You can also use your local `.env` file at runtime:
@@ -194,7 +207,7 @@ You can also use your local `.env` file at runtime:
 ```shell
 docker run --rm -p 8000:8000 \
   --env-file .env \
-  sat-builder:1.0.0
+  uowcpc/sat-builder:1.0.0
 ```
 
 This does not bake your `.env` into the image.
@@ -231,17 +244,23 @@ Log in to Docker Hub:
 docker login
 ```
 
-Build and tag the image:
+Publish using the helper script:
 
 ```shell
-docker build -t sat-builder:1.0.0 -t sat-builder:latest .
+./publish_docker.sh 1.0.0
 ```
 
-Push the image:
+This publishes:
+
+```text
+uowcpc/sat-builder:1.0.0
+uowcpc/sat-builder:latest
+```
+
+To publish under a different namespace:
 
 ```shell
-docker push sat-builder:1.0.0
-docker push sat-builder:latest
+DOCKER_NAMESPACE=my-user ./publish_docker.sh 1.0.0
 ```
 
 ## Recommended local workflow
@@ -249,13 +268,13 @@ docker push sat-builder:latest
 Build:
 
 ```shell
-docker build -t sat-builder:1.0.0 .
+docker build -t uowcpc/sat-builder:1.0.0 .
 ```
 
 Run:
 
 ```shell
-docker run --rm -p 8000:8000 sat-builder:1.0.0
+docker run --rm -p 8000:8000 uowcpc/sat-builder:1.0.0
 ```
 
 Run with Docker Compose:
@@ -269,7 +288,7 @@ Run with debug logging:
 ```shell
 docker run --rm -p 8000:8000 \
   -e SERVER__LOG_LEVEL=debug \
-  sat-builder:1.0.0
+  uowcpc/sat-builder:1.0.0
 ```
 
 Check health:
@@ -277,4 +296,3 @@ Check health:
 ```shell
 curl http://localhost:8000/health
 ```
-
