@@ -1,0 +1,36 @@
+services:
+  sat-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sat-builder:latest
+    container_name: sat-builder
+
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+    volumes:
+      - ./logs:/sat-builder/logs
+
+    restart: unless-stopped
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+    networks:
+      - sat-builder-network
+
+networks:
+  sat-builder-network:
+    name: sat-builder-network
+    driver: bridge
