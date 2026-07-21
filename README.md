@@ -85,7 +85,7 @@ At a high level:
 
 ## Docker Deployment
 
-SAT Builder can be built and run as a Docker container.
+SAT Builder can be run as a Docker container.
 
 The Docker image uses `python:3.12-slim`, installs the required Python dependencies, includes the Puccini TOSCA processor, and starts the application with:
 
@@ -96,13 +96,25 @@ python -m src
 Build the image from the project root:
 
 ```shell
-docker build -t sat-builder:1.0.0 .
+docker build -t uowcpc/sat-builder:1.0.0 .
 ```
 
 Run the container locally:
 
 ```shell
-docker run --rm -p 8000:8000 sat-builder:1.0.0
+docker run --rm -p 8000:8000 uowcpc/sat-builder:1.0.0
+```
+
+Or run using Docker Compose:
+
+```shell
+docker compose up -d
+```
+
+Use a specific published version with Docker Compose:
+
+```shell
+SAT_BUILDER_VERSION=1.0.0 docker compose up -d
 ```
 
 The API should then be available at:
@@ -118,10 +130,10 @@ Runtime configuration can be overridden using environment variables:
 ```shell
 docker run --rm -p 8000:8000 \
   -e SERVER__LOG_LEVEL=debug \
-  sat-builder:1.0.0
+  uowcpc/sat-builder:1.0.0
 ```
 
-For full Docker build, run, configuration, and publishing details, see:
+For full Docker build, run, configuration, Compose, and publishing details, see:
 
 - [`DOCKER.md`](DOCKER.md)
 
