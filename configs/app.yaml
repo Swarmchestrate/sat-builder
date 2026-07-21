@@ -1,0 +1,118 @@
+# Application Configuration for Swarmchestrate Application Template Builder
+# WARNING: Do not modify this file unless you understand the impact on the entire system
+# Changes may break API documentation and client integrations
+
+# ============================================================================
+# API Metadata
+# ============================================================================
+metadata:
+  title: Swarmchestrate Application Template Builder API
+  version: 1.0.0
+  description: OpenAPI-compatible RESTful API for generating Swarmchestrate Application Templates (SAT). This API validates and generates TOSCA-based templates in YAML or JSON format.
+  license:
+    name: Apache 2.0
+    url: https://apache.org/licenses/LICENSE-2.0
+  contact:
+    name: GitHub Issues
+    email:
+    url: https://github.com/Swarmchestrate/sat-builder/issues
+
+# ============================================================================
+# Documentation URLs (optional - omit to use defaults)
+# ============================================================================
+urls:
+  docs_url: /docs
+  redoc_url: /redoc
+  openapi_url: /openapi.json
+
+# ============================================================================
+# Swagger UI Configuration (optional - omit to use defaults)
+# ============================================================================
+swagger:
+  deepLinking: true
+  displayRequestDuration: true
+  filter: true
+  tryItOutEnabled: true
+  supportedSubmitMethods: [ "get", "post" ]
+
+# ============================================================================
+# Tosca Types supported by the API for template generation
+# ============================================================================
+
+tosca_types:
+  - application
+  - capacity
+
+# ============================================================================
+# Global Tags
+# ============================================================================
+tags:
+  info:
+    name: "info"
+    description: "API info"
+  health:
+    name: "health"
+    description: "API Health check"
+  application:
+    name: "application"
+    description: >
+      Build and generate Application Templates.<br><br>
+      **Functionality:**<br>
+      - Accepts response type, template version, TOSCA definitions version, and application description as query parameters<br>
+      - Accepts TOSCA metadata, imports, and service template configuration in the request body<br>
+      - Validates input against schemas<br>
+      - Generates a TOSCA Application Template<br>
+      - Returns the template in YAML, JSON, or both formats
+  capacity:
+    name: "capacity"
+    description: >
+      Build and generate Capacity Templates.<br><br>
+      **Functionality:**<br>
+      - Accepts response type, template version, TOSCA definitions version, and capacity description as query parameters<br>
+      - Accepts TOSCA metadata, imports, and service template configuration in the request body<br>
+      - Validates input against schemas<br>
+      - Generates a TOSCA Capacity Template<br>
+      - Returns the template in YAML, JSON, or both formats
+
+# ============================================================================
+# Routers Configuration
+# ============================================================================
+routers:
+  info:
+    path: "/"
+    tag: "info"
+
+  health:
+    path: "/health"
+    tag: "health"
+
+  application:
+    path: "/application"
+    tag: "application"
+    config_file: "tosca_application_template"
+    template_dir: "templates/application"
+    endpoints:
+      build:
+        path: "/build"
+        tag: "application"
+        summary: "Build Application Template"
+        description: "Build a specific application template..."
+
+  capacity:
+    path: "/capacity"
+    tag: "capacity"
+    config_file: "tosca_capacity_template"
+    template_dir: "templates/capacity"
+    endpoints:
+      build:
+        path: "/build"
+        tag: "capacity"
+        summary: "Build Capacity Template"
+        description: "Build a specific capacity template..."
+
+# ============================================================================
+# Application Configuration
+# ============================================================================
+
+validation:
+  sardou: false
