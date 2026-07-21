@@ -54,7 +54,7 @@
 {%- endfor %}
 {%- endmacro -%}
 
-tosca_definitions_version: {{ definitions_version }}
+tosca_definitions_version: {{ tosca_definitions_version }}
 {%- if metadata %}
 
 metadata:
