@@ -1,0 +1,56 @@
+# Docker ignore file for SAT Builder
+# Excludes unnecessary files from Docker build context
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python cache
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+**/*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Environment files
+.env
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/
+*.log
+
+# Tests and coverage
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation
+README*
+**/README*
+
+# Docker/local files not needed in image
+Dockerfile
+docker-compose*.yml
+docker-compose*.yaml
+.dockerignore
+
+# OS files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
