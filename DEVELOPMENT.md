@@ -68,6 +68,7 @@ Your local `.env` file should not be committed to Git.
 ## Setup script
 
 The local development script is named:
+
 ```text
 run_dev.sh
 ```
@@ -99,6 +100,12 @@ Start the application with:
 ./run_dev.sh
 ```
 
+To reset and recreate the virtual environment before starting the application, use:
+
+```shell
+./run_dev.sh --reset-venv
+```
+
 The application should start using the values from `.env`.
 
 By default, the API should be available at:
@@ -110,6 +117,7 @@ http://localhost:8000
 ## Health check
 
 If the health endpoint is enabled, test it with:
+
 ```shell
 curl http://localhost:8000/health
 ```
@@ -119,6 +127,7 @@ curl http://localhost:8000/health
 If you prefer to run the setup manually, use the following commands.
 
 Create a virtual environment:
+
 ```shell
 python3 -m venv .venv
 ```
@@ -181,7 +190,7 @@ Or:
 python -m pytest
 ```
 
-For more detailed testing guidance, see: [`tests/README.md`](configs/README.md)
+For more detailed testing guidance, see: [`tests/README.md`](tests/README.md)
 
 ## Configuration
 
@@ -208,4 +217,3 @@ After changing `.env`, restart the application for changes to take effect.
 - Do not commit generated logs.
 - If dependencies change, rerun `./run_dev.sh` to reinstall them.
 - The application starts with `python -m src`, so the `src` package must be executable as a module.
-
