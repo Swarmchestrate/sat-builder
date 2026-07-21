@@ -3,8 +3,18 @@
 set -euo pipefail
 
 VENV_DIR=".venv"
+RESET_VENV=false
+
+if [[ "${1:-}" == "--reset-venv" ]]; then
+  RESET_VENV=true
+fi
 
 echo "Starting SAT Builder local development setup..."
+
+if [[ "${RESET_VENV}" == true ]]; then
+  echo "Resetting virtual environment..."
+  rm -rf "${VENV_DIR}"
+fi
 
 if [[ ! -d "${VENV_DIR}" ]]; then
   echo "Creating virtual environment..."
