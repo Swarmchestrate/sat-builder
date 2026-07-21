@@ -1,19 +1,35 @@
+# Docker Compose configuration for SAT Builder
+# Swarmchestrate Application Template Builder
+# Runs the SAT Builder API service from the local Dockerfile
+
 services:
   sat-builder:
+    # Main SAT Builder API service
     build:
       context: .
       dockerfile: Dockerfile
+
+    # Built image name
     image: sat-builder:latest
+
+    # Fixed container name for easier local/deployment management
     container_name: sat-builder
 
+    # Expose the API port
+    # Host port can be overridden with API_PORT, defaults to 8000
     ports:
       - "${API_PORT:-8000}:8000"
 
+    # Persist application logs on the host machine
+    # Container workdir is /sat-builder
     volumes:
       - ./logs:/sat-builder/logs
 
+    # Restart the service unless it is explicitly stopped
     restart: unless-stopped
 
+    # Health check endpoint
+    # Verifies that the API is responding correctly
     healthcheck:
       test:
         [
@@ -27,9 +43,12 @@ services:
       retries: 3
       start_period: 10s
 
+    # Attach service to the SAT Builder network
     networks:
       - sat-builder-network
 
+# Network definition
+# Kept explicit so future services, such as a frontend, can join the same network
 networks:
   sat-builder-network:
     name: sat-builder-network
