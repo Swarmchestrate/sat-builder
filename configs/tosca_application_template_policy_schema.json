@@ -1,0 +1,84 @@
+{
+  "policy_types": [
+    "QoS.Energy.Budget",
+    "QoS.Cost.Budget",
+    "QoS.Performance.Bandwidth",
+    "QoS.Performance.Latency"
+  ],
+  "schema": {
+    "QoS.Energy.Budget": {
+      "properties": {
+        "priority": "float",
+        "target": "int"
+      }
+    },
+    "QoS.Cost.Budget": {
+      "properties": {
+        "priority": "float",
+        "target": "int"
+      }
+    },
+    "QoS.Performance.Bandwidth": {
+      "properties": {
+        "priority": "float",
+        "target": "int"
+      }
+    },
+    "QoS.Performance.Latency": {
+      "properties": {
+        "priority": "float",
+        "target": "int"
+      }
+    }
+  },
+  "constraints": {
+    "QoS.Energy.Budget": {
+      "properties": {
+        "priority": {
+          "greater_than": 0,
+          "less_than": 1
+        },
+        "target": {
+          "greater_than": 0,
+          "less_than": 1000
+        }
+      }
+    },
+    "QoS.Cost.Budget": {
+      "properties": {
+        "priority": {
+          "greater_than": 0,
+          "less_than": 1
+        },
+        "target": {
+          "greater_than": 0,
+          "less_than": 1000
+        }
+      }
+    },
+    "QoS.Performance.Bandwidth": {
+      "properties": {
+        "priority": {
+          "greater_than": 0,
+          "less_than": 1
+        },
+        "target": {
+          "greater_than": 0,
+          "less_than": 1000
+        }
+      }
+    },
+    "QoS.Performance.Latency": {
+      "properties": {
+        "priority": {
+          "greater_than": 0,
+          "less_than": 1
+        },
+        "target": {
+          "greater_than": 0,
+          "less_than": 1000
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "EC2.t3.micro": {
+    "type": "object",
+    "properties": {
+      "test": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "additionalProperties": false
+  }
+}

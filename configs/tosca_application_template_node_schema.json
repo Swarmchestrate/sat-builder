@@ -1,0 +1,416 @@
+{
+  "node_types": [
+    "Swarm",
+    "Application",
+    "Resource",
+    "Volume.HostPath"
+  ],
+  "schema": {
+    "Swarm": {
+      "directives": [
+        "str"
+      ]
+    },
+    "Application": {
+      "properties": {
+        "image": "str",
+        "env": [
+          {
+            "name": "str",
+            "value": "float|int|str"
+          }
+        ],
+        "ports": [
+          {
+            "port": "int",
+            "targetPort": "int",
+            "protocol": "str",
+            "nodePort": "int",
+            "metadata": {
+              "name": "str"
+            }
+          }
+        ],
+        "args": [
+          "float|int|str"
+        ]
+      },
+      "requirements": [
+        {
+          "host": [
+            "str",
+            {
+              "node_filter": {
+                "$and": [
+                  {
+                    "$greater_than": [
+                      "int|str",
+                      {
+                        "$get_property": [
+                          "str"
+                        ]
+                      }
+                    ],
+                    "$equal": [
+                      "float|str",
+                      {
+                        "$get_property": [
+                          "str"
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          ],
+          "volume": "str"
+        }
+      ]
+    },
+    "Resource": {
+      "directives": [
+        "str"
+      ],
+      "node_filter": {
+        "$and": [
+          {
+            "$greater_than": [
+              "int|str",
+              {
+                "$get_property": [
+                  "str"
+                ]
+              }
+            ],
+            "$equal": [
+              "float|str",
+              {
+                "$get_property": [
+                  "str"
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "Volume.HostPath": {
+      "properties": {
+        "path": "str"
+      }
+    }
+  },
+  "constraints": {
+    "Swarm": {
+      "directives": {
+        "merged_list": [
+          "substitute"
+        ]
+      }
+    },
+    "Resource": {
+      "directives": {
+        "merged_list": [
+          "select"
+        ]
+      },
+      "node_filter": {
+        "$and": {
+          "$greater_than": {
+            "$get_property": {
+              "strict_list": [
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "host",
+                  "num-cpus"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "host",
+                  "mem-size"
+                ]
+              ]
+            },
+            "min_elements": 2,
+            "max_elements": 2,
+            "requires": [
+              "$get_property"
+            ]
+          },
+          "$equal": {
+            "$get_property": {
+              "strict_list": [
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "host",
+                  "disk-size"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "host",
+                  "bandwidth"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "os",
+                  "type"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "os",
+                  "version"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "os",
+                  "distribution"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "resource",
+                  "provider"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "resource",
+                  "capacity-provider"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "resource",
+                  "type"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "pricing",
+                  "cost"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "locality",
+                  "continent"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "locality",
+                  "country"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "locality",
+                  "city"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "energy",
+                  "consumption"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "energy",
+                  "powered-type"
+                ],
+                [
+                  "SELF",
+                  "TARGET",
+                  "CAPABILITY",
+                  "energy",
+                  "energy-type"
+                ]
+              ]
+            },
+            "min_elements": 2,
+            "max_elements": 2,
+            "requires": [
+              "$get_property"
+            ]
+          }
+        }
+      }
+    },
+    "Application": {
+      "requirements": {
+        "host": {
+          "node_filter": {
+            "$and": {
+              "$greater_than": {
+                "$get_property": {
+                  "strict_list": [
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "host",
+                      "num-cpus"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "host",
+                      "mem-size"
+                    ]
+                  ]
+                },
+                "min_elements": 2,
+                "max_elements": 2,
+                "requires": [
+                  "$get_property"
+                ]
+              },
+              "$equal": {
+                "$get_property": {
+                  "strict_list": [
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "host",
+                      "disk-size"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "host",
+                      "bandwidth"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "os",
+                      "type"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "os",
+                      "version"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "os",
+                      "distribution"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "resource",
+                      "provider"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "resource",
+                      "capacity-provider"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "resource",
+                      "type"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "pricing",
+                      "cost"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "locality",
+                      "continent"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "locality",
+                      "country"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "locality",
+                      "city"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "energy",
+                      "consumption"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "energy",
+                      "powered-type"
+                    ],
+                    [
+                      "SELF",
+                      "TARGET",
+                      "CAPABILITY",
+                      "energy",
+                      "energy-type"
+                    ]
+                  ]
+                },
+                "min_elements": 2,
+                "max_elements": 2,
+                "requires": [
+                  "$get_property"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

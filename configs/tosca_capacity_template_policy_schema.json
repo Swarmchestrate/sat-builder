@@ -1,0 +1,27 @@
+{
+  "policy_types": [
+    "QoS.Energy.Budget"
+  ],
+  "schema": {
+    "QoS.Energy.Budget": {
+      "properties": {
+        "priority": "float",
+        "target": "int"
+      }
+    }
+  },
+  "constraints": {
+    "QoS.Energy.Budget": {
+      "properties": {
+        "priority": {
+          "greater_than": 0,
+          "less_than": 1
+        },
+        "target": {
+          "greater_than": 0,
+          "less_than": 1000
+        }
+      }
+    }
+  }
+}

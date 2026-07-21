@@ -1,0 +1,21 @@
+{
+  "node_types": [
+    "EC2.t3.micro"
+  ],
+  "schema": {
+    "EC2.t3.micro": {
+      "test": [
+        "str"
+      ]
+    }
+  },
+  "constraints": {
+    "EC2.t3.micro": {
+      "test": {
+        "merged_list": [
+          "test"
+        ]
+      }
+    }
+  }
+}

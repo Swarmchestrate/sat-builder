@@ -1,0 +1,74 @@
+{
+  "QoS.Energy.Budget": {
+    "type": "object",
+    "properties": {
+      "properties": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "number"
+          },
+          "target": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "QoS.Cost.Budget": {
+    "type": "object",
+    "properties": {
+      "properties": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "number"
+          },
+          "target": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "QoS.Performance.Bandwidth": {
+    "type": "object",
+    "properties": {
+      "properties": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "number"
+          },
+          "target": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  },
+  "QoS.Performance.Latency": {
+    "type": "object",
+    "properties": {
+      "properties": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "number"
+          },
+          "target": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  }
+}

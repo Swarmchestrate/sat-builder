@@ -1,0 +1,20 @@
+{
+  "QoS.Energy.Budget": {
+    "type": "object",
+    "properties": {
+      "properties": {
+        "type": "object",
+        "properties": {
+          "priority": {
+            "type": "number"
+          },
+          "target": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "additionalProperties": false
+  }
+}
