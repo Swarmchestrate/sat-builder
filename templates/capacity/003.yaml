@@ -1,0 +1,168 @@
+{%- macro render_property(prop_value) -%}
+{%- if prop_value is iterable and prop_value is not string -%}
+[
+          {%- for item in prop_value -%}
+          '{{ item }}'{% if not loop.last %}, {% endif %}
+          {%- endfor -%}
+        ]
+{%- else -%}
+{{ prop_value }}
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro render_node_filter(node_filter, base_indent=10) -%}
+{%- set indent = ' ' * base_indent %}
+{{ indent }}node_filter:
+{{ indent }}  $and:
+{%- for condition in node_filter['$and'] %}
+{%- for operator, operands in condition.items() %}
+{{ indent }}    - {{ operator }}:
+{%- for operand in operands %}
+{%- if operand is mapping and '$get_property' in operand %}
+{{ indent }}        - $get_property: [ {{ operand['$get_property']|join(', ') }} ]
+{%- else %}
+{{ indent }}        - {{ operand }}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+{%- endfor %}
+{%- endmacro -%}
+
+{%- macro render_ports(ports) %}
+{%- for port in ports %}
+        - port: {{ port.port }}
+          targetPort: {{ port.targetPort }}
+{%- if port.protocol %}
+          protocol: {{ port.protocol }}
+{%- endif %}
+{%- if port.nodePort %}
+          nodePort: {{ port.nodePort }}
+{%- endif %}
+{%- if port.metadata %}
+          metadata:
+{%- for key, value in port.metadata.items() %}
+            {{ key }}: {{ value }}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+{%- endmacro %}
+
+{%- macro render_env(env) %}
+{%- for env_var in env %}
+        - name: {{ env_var.name }}
+          value: {{ env_var.value }}
+{%- endfor %}
+{%- endmacro -%}
+
+tosca_definitions_version: {{ definitions_version }}
+{%- if metadata %}
+
+metadata:
+{%- if metadata.name %}
+  name: {{ metadata.name }}
+{%- endif %}
+{%- if metadata.version %}
+  version: {{ metadata.version }}
+{%- endif %}
+{%- if metadata.created_by %}
+  created_by: {{ metadata.created_by }}
+{%- endif %}
+{%- if metadata.created_at %}
+  created_at: {{ metadata.created_at }}
+{%- endif %}
+{%- if metadata.updated_at %}
+  updated_at: {{ metadata.updated_at }}
+{%- endif %}
+{%- if metadata.tags %}
+  tags:
+{%- for tag in metadata.tags %}
+  - {{ tag }}
+{%- endfor %}
+{%- endif %}
+{%- endif %}
+
+description: {{ description }}
+
+imports:
+- namespace: {{ imports[0]['namespace'] }}
+  profile: {{ imports[0].profile }}
+
+service_template:
+
+  node_templates:
+{%- for node_name, node_config in service_template.node_templates.items() %}
+
+    {{ node_name }}:
+{%- if ':' in node_config.type %}
+      type: {{ imports[0]['namespace'] }}:{{ node_config.type.split(':')[1] }}
+{%- else %}
+      type: {{ imports[0]['namespace'] }}:{{ node_config.type }}
+{%- endif %}
+
+{%- if node_config.directives %}
+      directives:
+{%- for directive in node_config.directives %}
+      - {{ directive }}
+{%- endfor %}
+{%- endif %}
+
+{%- if node_config.node_filter -%}
+{{ render_node_filter(node_config.node_filter, base_indent=6) }}
+{%- endif %}
+
+{%- if node_config.properties %}
+      properties:
+{%- if node_config.properties.image %}
+        image: {{ node_config.properties.image }}
+{%- endif %}
+{%- if node_config.properties.path %}
+        path: {{ node_config.properties.path }}
+{%- endif %}
+{%- if node_config.properties.ports %}
+        ports:
+{{- render_ports(node_config.properties.ports) }}
+{%- endif %}
+{%- if node_config.properties.env %}
+        env:
+{{- render_env(node_config.properties.env) }}
+{%- endif %}
+{%- if node_config.properties.args %}
+        args: {{ render_property(node_config.properties.args) }}
+{%- endif %}
+{%- endif %}
+
+{%- if node_config.requirements %}
+      requirements:
+{%- for req in node_config.requirements %}
+{%- for req_key, req_value in req.items() %}
+{%- if req_value is string %}
+      - {{ req_key }}: {{ req_value }}
+{%- else %}
+      - {{ req_key }}:
+{%- if req_value is mapping and 'node_filter' in req_value -%}
+{{ render_node_filter(req_value.node_filter, base_indent=10) }}
+{%- endif %}
+{%- endif %}
+{%- endfor %}
+{%- endfor %}
+{%- endif %}
+{%- endfor %}
+
+{%- if service_template.policies %}
+
+  policies:
+{%- for policy in service_template.policies %}
+{%- for policy_name, policy_config in policy.items() %}
+  - {{ policy_name }}:
+{%- if ':' in policy_config.type %}
+      type: {{ imports[0]['namespace'] }}:{{ policy_config.type.split(':')[1] }}
+{%- else %}
+      type: {{ imports[0]['namespace'] }}:{{ policy_config.type }}
+{%- endif %}
+      properties:
+{%- for key, value in policy_config.properties.items() %}
+        {{ key }}: {{ value }}
+{%- endfor %}
+{%- endfor %}
+{%- endfor %}
+{%- endif %}
