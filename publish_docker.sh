@@ -2,12 +2,31 @@
 
 set -euo pipefail
 
-IMAGE_NAME="uowcpc/sat-builder"
+# Docker Hub namespace or username.
+# Defaults to the UOW CPC Docker Hub organisation.
+#
+# Override example:
+#   DOCKER_NAMESPACE=my-user ./publish_docker.sh 1.0.0
+DOCKER_NAMESPACE="${DOCKER_NAMESPACE:-uowcpc}"
+
+# Full Docker image name.
+IMAGE_NAME="${DOCKER_NAMESPACE}/sat-builder"
+
+# Image version/tag to publish.
+# Usage:
+#   ./publish_docker.sh 1.0.0
 VERSION="${1:-}"
 
 if [[ -z "${VERSION}" ]]; then
   echo "Usage: ./publish_docker.sh <version>"
   echo "Example: ./publish_docker.sh 1.0.0"
+  echo ""
+  echo "Optional:"
+  echo "  DOCKER_NAMESPACE defaults to: uowcpc"
+  echo ""
+  echo "Examples:"
+  echo "  ./publish_docker.sh 1.0.0"
+  echo "  DOCKER_NAMESPACE=my-user ./publish_docker.sh 1.0.0"
   exit 1
 fi
 

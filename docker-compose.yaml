@@ -1,11 +1,20 @@
 # Docker Compose configuration for SAT Builder
 # Swarmchestrate Application Template Builder
 # Runs the SAT Builder API service from the published Docker image
+#
+# Image configuration:
+#   DOCKER_NAMESPACE defaults to "uowcpc"
+#   SAT_BUILDER_VERSION defaults to "latest"
+#
+# Examples:
+#   docker compose up -d
+#   DOCKER_NAMESPACE=uowcpc SAT_BUILDER_VERSION=1.0.0 docker compose up -d
+#   DOCKER_NAMESPACE=my-user SAT_BUILDER_VERSION=dev docker compose up -d
 
 services:
   sat-builder:
     # Main SAT Builder API service
-    image: uowcpc/sat-builder:latest
+    image: ${DOCKER_NAMESPACE:-uowcpc}/sat-builder:${SAT_BUILDER_VERSION:-latest}
 
     # Fixed container name for easier local/deployment management
     container_name: sat-builder

@@ -30,6 +30,7 @@ Relevant Docker-related files:
 ```text
 .
 ├── Dockerfile
+├── docker-compose.yaml
 ├── .dockerignore
 ├── env.template
 ├── requirements.txt
@@ -114,6 +115,12 @@ You can also tag it as `latest`:
 docker build -t sat-builder:latest .
 ```
 
+Or build both tags at once:
+
+```shell
+docker build -t sat-builder:1.0.0 -t sat-builder:latest .
+```
+
 ## Run the container
 
 Run the container locally:
@@ -126,6 +133,33 @@ The application should be available at:
 
 ```text
 http://localhost:8000
+```
+
+## Run with Docker Compose
+
+Start the service using the published image:
+
+```shell
+docker compose up -d
+```
+
+Pull the latest image and restart:
+
+```shell
+docker compose pull
+docker compose up -d
+```
+
+Stop the service:
+
+```shell
+docker compose down
+```
+
+View logs:
+
+```shell
+docker compose logs -f sat-builder
 ```
 
 ## Health check
@@ -197,29 +231,17 @@ Log in to Docker Hub:
 docker login
 ```
 
-Build the image:
+Build and tag the image:
 
 ```shell
-docker build -t sat-builder:1.0.0 .
+docker build -t sat-builder:1.0.0 -t sat-builder:latest .
 ```
 
-Tag it for your Docker Hub namespace:
+Push the image:
 
 ```shell
-docker tag sat-builder:1.0.0 your-dockerhub-username/sat-builder:1.0.0
-```
-
-Push it:
-
-```shell
-docker push your-dockerhub-username/sat-builder:1.0.0
-```
-
-Optionally publish `latest`:
-
-```shell
-docker tag sat-builder:1.0.0 your-dockerhub-username/sat-builder:latest
-docker push your-dockerhub-username/sat-builder:latest
+docker push sat-builder:1.0.0
+docker push sat-builder:latest
 ```
 
 ## Recommended local workflow
@@ -234,6 +256,12 @@ Run:
 
 ```shell
 docker run --rm -p 8000:8000 sat-builder:1.0.0
+```
+
+Run with Docker Compose:
+
+```shell
+docker compose up -d
 ```
 
 Run with debug logging:
