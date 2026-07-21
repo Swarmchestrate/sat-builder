@@ -1,0 +1,71 @@
+# Template Configuration for Swarmchestrate Capacity
+# WARNING: Do not modify this file unless you understand the impact on the entire system
+# Changes may break Templates, Applications, and Services.
+
+##########################################################################
+# TOSCA Capacity Template definitions / Schema for the API
+# https://github.com/Swarmchestrate/tosca/blob/main/profiles/eu.swarmchestrate/profile.yaml
+##########################################################################
+
+tosca_definitions_version: tosca_2_0
+
+imports:
+  - namespace: swch
+    url: https://raw.githubusercontent.com/Swarmchestrate/e2e-demo/refs/heads/main/ra-aws-cloud/aws-cap-profile.yaml
+
+metadata:
+  name: Swarmchestrate Capacity Template
+  version: 1.0.0
+  created_by: Swarmchestrate Project
+  created_at: 2025-01-01 # Current date applied
+  updated_at: 2025-01-01 # Current date applied
+  tags:
+    - capacity
+    - default_metadata
+
+description: Swarmchestrate Capacity Template Definition
+
+
+service_template:
+
+  node_templates:
+
+    resource-1:
+      type: swch:EC2.t3.micro
+      test:
+        - test
+
+  policies:
+
+    - energy:
+        type: swch:QoS.Energy.Budget
+        properties:
+          priority: 0.5
+          target: 40
+
+##########################################################################
+# Capacity node schema constraints
+##########################################################################
+node_constraints:
+  test: {
+    "merged_list": true
+  }
+
+##########################################################################
+# Capacity policy constraints
+##########################################################################
+policy_constraints:
+  priority: {
+    "greater_than": 0,
+    "less_than": 1
+  }
+  target: {
+    "greater_than": 0,
+    "less_than": 1000
+  }
+
+##########################################################################
+# API default parameters
+##########################################################################
+default_response_type: yaml_and_json
+default_template_version: latest
