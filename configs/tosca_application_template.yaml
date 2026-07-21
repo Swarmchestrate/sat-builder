@@ -1,0 +1,199 @@
+# Template Configuration for Swarmchestrate Application
+# WARNING: Do not modify this file unless you understand the impact on the entire system
+# Changes may break Templates, Applications, and Services.
+
+##########################################################################
+# TOSCA Application Template definitions / Schema for the API
+# https://github.com/Swarmchestrate/tosca/blob/main/profiles/eu.swarmchestrate/profile.yaml
+##########################################################################
+
+tosca_definitions_version: tosca_2_0
+
+imports:
+  - namespace: swch
+    profile: https://raw.githubusercontent.com/Swarmchestrate/tosca/refs/heads/main/profiles/eu.swarmchestrate/profile.yaml
+
+metadata:
+  name: Swarmchestrate Application Template
+  version: 1.0.0
+  created_by: Swarmchestrate Project
+  created_at: 2025-01-01 # Current date applied
+  updated_at: 2025-01-01 # Current date applied
+  tags:
+    - application
+    - default_metadata
+
+description: Swarmchestrate Application Template Definition
+
+node_filter_conditions: &resource_constraints
+  $and:
+    - $greater_than:
+        - $get_property: [ SELF, TARGET, CAPABILITY, host, num-cpus ]
+        - 2
+    - $greater_than:
+        - $get_property: [ SELF, TARGET, CAPABILITY, host, mem-size ]
+        - 1 GB
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, host, disk-size ]
+        - 20 GB
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, host, bandwidth ]
+        - 100 MBps
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, os, type ]
+        - linux
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, os, version ]
+        - "22.04"
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, os, distribution ]
+        - ubuntu
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, resource, provider ]
+        - Amazon
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, resource, capacity-provider ]
+        - uow
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, resource, type ]
+        - cloud
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, pricing, cost ]
+        - 0.0139
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, locality, continent ]
+        - N.America
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, locality, country ]
+        - USA
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, locality, city ]
+        - N.Virginia
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, energy, consumption ]
+        - 13.0
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, energy, powered-type ]
+        - mains-powered
+    - $equal:
+        - $get_property: [ SELF, TARGET, CAPABILITY, energy, energy-type ]
+        - non-green
+
+service_template:
+
+  node_templates:
+
+    swarm:
+      type: swch:Swarm
+      directives:
+        - substitute
+
+    application-1:
+      type: swch:Application
+      properties:
+        image: image-1
+        env:
+          - name: name-1
+            value: value-1
+          - name: name-2
+            value: value-2:1
+          - name: name-3
+            value: 4
+          - name: name-4
+            value: 4.0
+        ports:
+          - port: 80
+            targetPort: 80
+            protocol: UDP
+            nodePort: 65535
+            metadata:
+              name: application-1
+        args: [ '--arg1', 2, 3.1 ]
+      requirements:
+        - host: resource-1
+        - volume: volume-1
+
+    application-2:
+      type: swch:Application
+      properties:
+        image: image-2
+      requirements:
+        - host:
+            node_filter: *resource_constraints
+
+    resource-1:
+      type: swch:Resource
+      directives:
+        - select
+      node_filter: *resource_constraints
+
+    volume-1:
+      type: swch:Volume.HostPath
+      properties:
+        path: /path/to/host/volume
+
+  policies:
+
+    - energy:
+        type: swch:QoS.Energy.Budget
+        properties:
+          priority: 0.5
+          target: 40
+
+    - cost:
+        type: swch:QoS.Cost.Budget
+        properties:
+          priority: 0.5
+          target: 2
+
+    - bandwidth:
+        type: swch:QoS.Performance.Bandwidth
+        properties:
+          priority: 0.5
+          target: 800
+
+    - latency:
+        type: swch:QoS.Performance.Latency
+        properties:
+          priority: 0.5
+          target: 70
+
+##########################################################################
+# Application node schema constraints
+##########################################################################
+node_constraints:
+  directives: {
+    "merged_list": true
+  }
+  $get_property: {
+    "strict_list": true
+  }
+  $greater_than: {
+    'min_elements': 2,
+    'max_elements': 2,
+    'requires': [ '$get_property' ]
+  }
+  $equal: {
+    'min_elements': 2,
+    'max_elements': 2,
+    'requires': [ '$get_property' ]
+  }
+
+##########################################################################
+# Application policy constraints
+##########################################################################
+policy_constraints:
+  priority: {
+    "greater_than": 0,
+    "less_than": 1
+  }
+  target: {
+    "greater_than": 0,
+    "less_than": 1000
+  }
+
+##########################################################################
+# API default parameters
+##########################################################################
+default_response_type: yaml_and_json
+default_template_version: latest
