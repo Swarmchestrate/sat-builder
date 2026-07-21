@@ -1,16 +1,11 @@
 # Docker Compose configuration for SAT Builder
 # Swarmchestrate Application Template Builder
-# Runs the SAT Builder API service from the local Dockerfile
+# Runs the SAT Builder API service from the published Docker image
 
 services:
   sat-builder:
     # Main SAT Builder API service
-    build:
-      context: .
-      dockerfile: Dockerfile
-
-    # Built image name
-    image: sat-builder:latest
+    image: uowcpc/sat-builder:latest
 
     # Fixed container name for easier local/deployment management
     container_name: sat-builder
