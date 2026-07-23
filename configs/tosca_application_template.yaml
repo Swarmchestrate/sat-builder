@@ -104,7 +104,6 @@ service_template:
         ports:
           - port: 80
             targetPort: 80
-            protocol: UDP
             nodePort: 65535
             metadata:
               name: application-1
