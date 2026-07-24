@@ -16,6 +16,8 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      DOCKER_NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
 
     steps:
       - name: Checkout repository
@@ -36,8 +38,8 @@ jobs:
           context: .
           push: true
           tags: |
-            uowcpc/sat-builder:latest
-            uowcpc/sat-builder:${{ github.sha }}
+            ${{ env.DOCKER_NAMESPACE }}/sat-builder:latest
+            ${{ env.DOCKER_NAMESPACE }}/sat-builder:${{ github.sha }}
 
   deploy:
     needs: build
