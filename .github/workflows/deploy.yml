@@ -1,0 +1,68 @@
+name: Build and Deploy SAT Builder
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: sat-builder-production
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            uowcpc/sat-builder:latest
+            uowcpc/sat-builder:${{ github.sha }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          PRO_SUDO: ${{ secrets.PRO_SUDO }}
+        with:
+          host: ${{ secrets.PRO_SERVER }}
+          username: ${{ secrets.PRO_USER }}
+          key: ${{ secrets.PRO_KEY }}
+          envs: PRO_SUDO
+          script: |
+            set -e
+            cd /opt/sat-builder
+
+            if [ "${PRO_SUDO}" = "true" ] || [ "${PRO_SUDO}" = "1" ]; then
+              SUDO="sudo -n"
+            else
+              SUDO=""
+            fi
+
+            $SUDO docker compose pull
+            $SUDO docker compose up -d --remove-orphans
+            $SUDO docker ps --filter "name=sat-builder"
