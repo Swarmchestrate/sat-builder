@@ -39,10 +39,6 @@ swagger:
 # Tosca Types supported by the API for template generation
 # ============================================================================
 
-tosca_types:
-  - application
-  - capacity
-
 # ============================================================================
 # Global Tags
 # ============================================================================
@@ -89,8 +85,6 @@ routers:
   application:
     path: "/application"
     tag: "application"
-    config_file: "tosca_application_template"
-    template_dir: "templates/application"
     endpoints:
       build:
         path: "/build"
@@ -101,8 +95,6 @@ routers:
   capacity:
     path: "/capacity"
     tag: "capacity"
-    config_file: "tosca_capacity_template"
-    template_dir: "templates/capacity"
     endpoints:
       build:
         path: "/build"

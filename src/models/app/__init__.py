@@ -24,7 +24,6 @@ from .app import (
     get_lifespan_config,         # Application lifecycle configuration
     get_health_config,           # Health endpoint configuration
     get_info_config,             # Info endpoint configuration
-    get_tosca_types,             # Available TOSCA type definitions
     get_validation_config        # TOSCA template validation configuration
 )
 
@@ -39,6 +38,5 @@ __all__ = [
     "get_lifespan_config",       # Get app lifecycle configuration
     "get_health_config",         # Get health check configuration
     "get_info_config",           # Get info endpoint configuration
-    "get_tosca_types",           # Get all available TOSCA type list
     "get_validation_config"      # Get TOSCA template validation configuration
 ]

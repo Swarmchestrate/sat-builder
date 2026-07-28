@@ -18,7 +18,6 @@ from .metadata import Metadata
 from .routers import Routers, Router
 from .swagger import Swagger
 from .tags import Tags
-from .tosca_types import ToscaTypes
 from .urls import URLs
 from .validation import Validation
 
@@ -37,7 +36,6 @@ class App(BaseSettings):
     Attributes:
         metadata: Application metadata (title, version, description, license, contact)
         swagger: Swagger UI configuration settings
-        tosca_types: Available TOSCA type definitions
         urls: API endpoint URL configurations
         tags: OpenAPI tag definitions for documentation
         routers: Router configuration mappings
@@ -54,7 +52,6 @@ class App(BaseSettings):
 
     metadata: Metadata
     swagger: Swagger
-    tosca_types: ToscaTypes
     urls: URLs
     tags: Tags
     routers: Routers
@@ -172,13 +169,6 @@ class App(BaseSettings):
         tag_dict = getattr(self.tags, router.tag)
         return tag_dict["description"]
 
-    def get_tosca_types(self) -> ToscaTypes:
-        """Get available TOSCA types configuration.
-
-        Returns:
-            ToscaTypes object containing all available TOSCA type definitions
-        """
-        return self.tosca_types
 
     def get_lifespan_config(self) -> Dict[str, str]:
         """Get configuration data needed for application lifespan management.
@@ -382,21 +372,6 @@ def get_router_description(router_name: str) -> str:
     logger.debug(f"{function_name}:\nRouter {router_name}: {router_description}")
     return router_description
 
-
-def get_tosca_types() -> ToscaTypes:
-    """Get the list of available TOSCA types.
-
-    Public API function that retrieves all configured TOSCA type definitions
-    for use in template validation and API generation.
-
-    Returns:
-        List of available TOSCA type names
-    """
-    # noinspection PyUnresolvedReferences
-    function_name = inspect.currentframe().f_code.co_name
-    tosca_types = _get_app_config().get_tosca_types()
-    logger.debug(f"{function_name}:\n{json.dumps(tosca_types.model_dump(), indent=2)}")
-    return tosca_types
 
 
 def get_lifespan_config() -> Dict[str, str]:

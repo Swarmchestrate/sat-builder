@@ -12,9 +12,10 @@ import yaml
 from fastapi import APIRouter, Body, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from src.models.app import get_router_config
+from src.models.app import get_router_config, get_validation_config
 from src.models.settings import get_profile_settings
 from src.models.tosca.profile import assemble, get_profile, validate
+from src.models.tosca.puccini import validate_document
 from src.utils.logger import get_logger, log_api_calls
 
 logger = get_logger()
@@ -102,6 +103,28 @@ def _create_capacity_router() -> APIRouter:
             description=description,
         )
 
+        # Always render, so the document can be checked by the TOSCA processor
+        # even when the caller only wants JSON back.
+        document_yaml = _to_yaml(document)
+
+        if get_validation_config()["sardou"]:
+            problems, processor_available = validate_document(document_yaml)
+            if problems:
+                raise HTTPException(
+                    status_code=422,
+                    detail=[
+                        {"path": "service_template", "message": list(p.values())[0],
+                         "kind": "tosca_validation"}
+                        for p in problems
+                    ],
+                )
+            if not processor_available:
+                warnings.append({
+                    "tosca_validation": "TOSCA processor unavailable, the document was not validated"
+                })
+        else:
+            warnings.append({"tosca_validation": "TOSCA validation is disabled, skipped"})
+
         if response_type == "json":
             warnings.append({
                 "response_type": "Response type 'json' selected: YAML was not generated"
@@ -118,7 +141,7 @@ def _create_capacity_router() -> APIRouter:
             node_types=node_types,
             definitions_version=definitions_version,
             profile_version=profile.version,
-            template_yaml=_to_yaml(document) if response_type in ("yaml", "yaml_and_json") else None,
+            template_yaml=document_yaml if response_type in ("yaml", "yaml_and_json") else None,
             template_json=document if response_type in ("json", "yaml_and_json") else None,
             warnings=warnings,
         )
