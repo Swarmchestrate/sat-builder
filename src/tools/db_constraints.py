@@ -19,7 +19,7 @@ import urllib.request
 from typing import Dict, List, Set, Tuple
 
 from src.models.settings import get_profile_settings
-from src.models.tosca.profile import collect_bindings, get_profile
+from src.models.tosca.profile import collect_bindings, document_bindings, get_profile
 from src.models.tosca.profile.resolver import Profile
 
 
@@ -33,6 +33,14 @@ def required_columns(profile: Profile, type_names: List[str] | None = None) -> D
         type_names = profile.type_names("node_types")
 
     required: Dict[str, Set[str]] = {}
+
+    # Document-level bindings name the template and its node templates. Nothing
+    # marks them required in the profile, but a document without them is not
+    # usable, so the columns behind them must always hold a value.
+    for table, column in document_bindings(profile).values():
+        if column:
+            required.setdefault(table, set()).add(column)
+
     for type_name in type_names:
         try:
             bindings = collect_bindings(profile.resolve(type_name), profile)
