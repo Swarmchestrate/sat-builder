@@ -33,7 +33,7 @@ _FALSEY = {"false", "f", "no", "n", "0"}
 @log_function_calls()
 def assemble(
         profile: Profile,
-        type_name: str,
+        type_names: str | Sequence[str],
         payload: Mapping[str, Any],
         namespace: str = "swch",
         definitions_version: str = "tosca_2_0",
@@ -43,9 +43,14 @@ def assemble(
 ) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
     """Build a TOSCA document for one capacity.
 
+    A type whose bindings read the instance table produces one node template per
+    row of it. A type whose bindings do not - a totals node such as
+    OverallCapacity - produces a single node template, and only when the payload
+    actually carries data for it.
+
     Args:
         profile: Resolved profile providing types and bindings
-        type_name: Node type to instantiate (e.g. CloudCapacity)
+        type_names: Node type, or types, to instantiate
         payload: Database rows keyed by table name
         namespace: Import namespace prefix applied to node types
         definitions_version: TOSCA definitions version for the document
@@ -56,12 +61,9 @@ def assemble(
     Returns:
         Tuple of (document, warnings)
     """
-    resolved = profile.resolve(type_name)
-    bindings = collect_bindings(resolved, profile)
+    requested = [type_names] if isinstance(type_names, str) else list(type_names)
     documents = document_bindings(profile)
-
     warnings: List[Dict[str, str]] = []
-    claimed = _claimed_columns(bindings)
 
     instance_table, name_column = documents.get("node_template.name", (None, None))
     if not instance_table:
@@ -71,12 +73,67 @@ def assemble(
         )
 
     instance_rows = _as_rows(payload.get(instance_table))
-    if not instance_rows:
+    document_name = _document_value(documents.get("metadata.name"), payload)
+
+    claimed: Dict[str, set] = {}
+    node_templates: Dict[str, Any] = {}
+    per_row_types = []
+
+    for type_name in requested:
+        bindings = collect_bindings(profile.resolve(type_name), profile)
+        for table, columns in _claimed_columns(bindings).items():
+            claimed.setdefault(table, set()).update(columns)
+
+        if any(binding.table == instance_table for binding in bindings):
+            per_row_types.append(type_name)
+            _add_per_row(
+                node_templates, warnings, bindings, payload, instance_rows,
+                instance_table, name_column, type_name, namespace,
+            )
+        else:
+            _add_singleton(
+                node_templates, warnings, bindings, payload,
+                instance_table, type_name, namespace, document_name,
+            )
+
+    if per_row_types and not instance_rows:
         warnings.append({
             "payload": f"No rows for '{instance_table}', so no node templates were produced"
         })
 
-    node_templates: Dict[str, Any] = {}
+    document: Dict[str, Any] = {"tosca_definitions_version": definitions_version}
+
+    resolved_metadata = dict(metadata or {})
+    if document_name:
+        resolved_metadata["name"] = document_name
+    if resolved_metadata:
+        document["metadata"] = resolved_metadata
+
+    resolved_description = description or _document_value(documents.get("description"), payload)
+    if resolved_description:
+        document["description"] = resolved_description
+
+    if imports:
+        document["imports"] = imports
+
+    document["service_template"] = {"node_templates": node_templates}
+
+    warnings.extend(_unclaimed(payload, claimed, documents, profile))
+    return document, warnings
+
+
+def _add_per_row(
+        node_templates: Dict[str, Any],
+        warnings: List[Dict[str, str]],
+        bindings: Sequence[Binding],
+        payload: Mapping[str, Any],
+        instance_rows: Sequence[Mapping[str, Any]],
+        instance_table: str,
+        name_column: str | None,
+        type_name: str,
+        namespace: str,
+) -> None:
+    """One node template per row of the instance table."""
     for index, row in enumerate(instance_rows):
         name = row.get(name_column) if name_column else None
         if not name:
@@ -92,26 +149,38 @@ def assemble(
             bindings, payload, row, instance_table, f"{namespace}:{type_name}"
         )
 
-    document: Dict[str, Any] = {"tosca_definitions_version": definitions_version}
 
-    resolved_metadata = dict(metadata or {})
-    bound_name = _document_value(documents.get("metadata.name"), payload)
-    if bound_name:
-        resolved_metadata["name"] = bound_name
-    if resolved_metadata:
-        document["metadata"] = resolved_metadata
+def _add_singleton(
+        node_templates: Dict[str, Any],
+        warnings: List[Dict[str, str]],
+        bindings: Sequence[Binding],
+        payload: Mapping[str, Any],
+        instance_table: str,
+        type_name: str,
+        namespace: str,
+        document_name: str | None,
+) -> None:
+    """A single node template, emitted only when the payload has data for it."""
+    node = _build_node(bindings, payload, {}, instance_table, f"{namespace}:{type_name}")
+    if len(node) == 1:
+        # Only 'type' was set, so nothing in the payload belongs to this node.
+        return
 
-    resolved_description = description or _document_value(documents.get("description"), payload)
-    if resolved_description:
-        document["description"] = resolved_description
+    name = _unique_name(node_templates, document_name or type_name.lower(), type_name)
+    node_templates[name] = node
 
-    if imports:
-        document["imports"] = imports
 
-    document["service_template"] = {"node_templates": node_templates}
-
-    warnings.extend(_unclaimed(payload, claimed, documents, profile))
-    return document, warnings
+def _unique_name(taken: Mapping[str, Any], preferred: str, type_name: str) -> str:
+    """Pick a node template name that does not collide with an existing one."""
+    if preferred not in taken:
+        return preferred
+    qualified = f"{preferred}-{type_name.lower()}"
+    if qualified not in taken:
+        return qualified
+    index = 2
+    while f"{qualified}-{index}" in taken:
+        index += 1
+    return f"{qualified}-{index}"
 
 
 def _build_node(

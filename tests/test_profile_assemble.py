@@ -181,6 +181,35 @@ def test_duplicate_names_are_reported(profile):
     assert any("Duplicate" in w.get("node_template", "") for w in warnings)
 
 
+def test_totals_type_adds_one_template_beside_the_per_row_ones(profile):
+    payload = {**PAYLOAD, "quota": {"total": 100}}
+    doc, _ = assemble(profile, ["Thing", "Overall"], payload)
+    assert set(templates(doc)) == {"big", "small", "my-capacity"}
+    assert templates(doc)["my-capacity"]["type"] == "swch:Overall"
+    assert templates(doc)["my-capacity"]["capabilities"]["quota"]["properties"]["total"] == 100
+
+
+def test_totals_type_is_omitted_when_the_payload_has_no_data_for_it(profile):
+    doc, _ = assemble(profile, ["Thing", "Overall"], PAYLOAD)
+    assert set(templates(doc)) == {"big", "small"}
+
+
+def test_requesting_the_totals_type_claims_its_columns(profile):
+    payload = {**PAYLOAD, "quota": {"total": 100}}
+    _, warnings = assemble(profile, ["Thing", "Overall"], payload)
+    assert not any("quota" in w.get("payload", "") for w in warnings)
+
+
+def test_totals_template_name_falls_back_when_taken(profile):
+    payload = {
+        **PAYLOAD,
+        "quota": {"total": 100},
+        "flavour": [{"name": "my-capacity", "cpu": 1}],
+    }
+    doc, _ = assemble(profile, ["Thing", "Overall"], payload)
+    assert set(templates(doc)) == {"my-capacity", "my-capacity-overall"}
+
+
 def test_profile_without_node_template_binding_raises(tmp_path):
     document = {**PROFILE, "metadata": {"gui_bindings": {"metadata.name": "cap.name"}}}
     (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
