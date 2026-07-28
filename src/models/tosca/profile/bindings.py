@@ -8,14 +8,37 @@ database access.
 Supported forms:
     capacity_new.ssh_port                  a column on a table
     capacity_port_rule[direction=ingress]  rows of a table, filtered
+    application_property{key: value}       rows naming the property they set
 """
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Tuple
 
-from .resolver import Profile, ResolvedType
+from .resolver import DEFAULT_BINDING_GROUP, Profile, ResolvedType
 
-GUI_NAME_RE = re.compile(r"^(?P<table>\w+)(?:\[(?P<filters>[^\]]+)\])?(?:\.(?P<column>\w+))?$")
+GUI_NAME_RE = re.compile(
+    r"^(?P<table>\w+)"
+    r"(?:\[(?P<filters>[^\]]+)\])?"
+    r"(?:\{(?P<pairs>[^}]+)\})?"
+    r"(?:\.(?P<column>\w+))?$"
+)
+
+
+@dataclass
+class KeyValueBinding:
+    """A table whose rows each name the property they set.
+
+    Where an ordinary binding fixes its property at profile-authoring time, this
+    one defers it to the data: key_column holds the property name and
+    value_column its value. That is what lets a user add a property the form
+    never anticipated, and what makes the property name itself something worth
+    validating.
+    """
+
+    table: str
+    key_column: str
+    value_column: str
+    filters: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -41,14 +64,20 @@ class Binding:
 
     @property
     def entry_schema(self) -> str | None:
-        return self.definition.get("entry_schema")
+        """The entry type name, however the profile spelled it.
+
+        TOSCA allows both `entry_schema: string` and `entry_schema: {type: string}`;
+        the profile uses each in places.
+        """
+        declared = self.definition.get("entry_schema")
+        if isinstance(declared, dict):
+            declared = declared.get("type")
+        return declared.split(":")[-1] if isinstance(declared, str) else None
 
 
 def parse_gui_name(reference: str) -> Tuple[str, str | None, Dict[str, str]]:
     """Split a gui_name into (table, column, filters)."""
-    match = GUI_NAME_RE.match(reference.strip())
-    if not match:
-        raise ValueError(f"Malformed gui_name: {reference!r}")
+    match = _match(reference)
 
     filters: Dict[str, str] = {}
     if match.group("filters"):
@@ -59,6 +88,35 @@ def parse_gui_name(reference: str) -> Tuple[str, str | None, Dict[str, str]]:
             filters[key.strip()] = value.strip()
 
     return match.group("table"), match.group("column"), filters
+
+
+def parse_key_value_gui_name(reference: str) -> KeyValueBinding:
+    """Parse the `table{key_column: value_column}` form."""
+    match = _match(reference)
+    pairs = match.group("pairs")
+    if not pairs or ":" not in pairs:
+        raise ValueError(
+            f"Expected a key/value gui_name of the form "
+            f"table{{key_column: value_column}}, got {reference!r}"
+        )
+    key_column, value_column = (part.strip() for part in pairs.split(":", 1))
+    if not key_column or not value_column:
+        raise ValueError(f"Malformed key/value gui_name: {reference!r}")
+
+    _, _, filters = parse_gui_name(reference)
+    return KeyValueBinding(
+        table=match.group("table"),
+        key_column=key_column,
+        value_column=value_column,
+        filters=filters,
+    )
+
+
+def _match(reference: str) -> "re.Match[str]":
+    match = GUI_NAME_RE.match(reference.strip())
+    if not match:
+        raise ValueError(f"Malformed gui_name: {reference!r}")
+    return match
 
 
 def collect_bindings(resolved: ResolvedType, profile: Profile | None = None) -> List[Binding]:
@@ -100,13 +158,51 @@ def entry_bindings(profile: Profile, data_type_name: str) -> List[Binding]:
     ]
 
 
-def document_bindings(profile: Profile) -> Dict[str, Tuple[str, str | None]]:
-    """Document-level bindings (template metadata, node template naming)."""
+def binding_group(profile: Profile, group: str | None = None) -> Dict[str, str]:
+    """The raw document-level bindings for one kind of document.
+
+    An unknown or unnamed group falls back to the default one, so a profile that
+    still declares its bindings flat keeps working.
+    """
+    groups = profile.gui_bindings or {}
+    declared = groups.get(group) if group else None
+    if declared is None:
+        declared = groups.get(DEFAULT_BINDING_GROUP, {})
+    return declared
+
+
+def document_bindings(
+        profile: Profile,
+        group: str | None = None,
+) -> Dict[str, Tuple[str, str | None]]:
+    """Document-level bindings (template metadata, node template naming).
+
+    Key/value bindings are excluded: they name no single column, so they are
+    read separately by free_property_binding.
+    """
     parsed: Dict[str, Tuple[str, str | None]] = {}
-    for target, reference in (profile.gui_bindings or {}).items():
+    for target, reference in binding_group(profile, group).items():
+        if _is_key_value(reference):
+            continue
         table, column, _ = parse_gui_name(reference)
         parsed[target] = (table, column)
     return parsed
+
+
+def free_property_binding(
+        profile: Profile,
+        group: str | None = None,
+) -> KeyValueBinding | None:
+    """The binding that lets rows supply arbitrary node template properties."""
+    reference = binding_group(profile, group).get("node_template.properties")
+    if not reference:
+        return None
+    return parse_key_value_gui_name(reference)
+
+
+def _is_key_value(reference: str) -> bool:
+    match = GUI_NAME_RE.match(reference.strip())
+    return bool(match and match.group("pairs"))
 
 
 def _binding_for(path: Tuple[str, ...], definition: Any) -> Binding | None:

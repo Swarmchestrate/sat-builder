@@ -2,7 +2,16 @@
 import pytest
 import yaml
 
-from src.models.tosca.profile import load_profile, collect_bindings, parse_gui_name
+from src.models.tosca.profile import (
+    DEFAULT_BINDING_GROUP,
+    binding_group,
+    collect_bindings,
+    document_bindings,
+    free_property_binding,
+    load_profile,
+    parse_gui_name,
+    parse_key_value_gui_name,
+)
 
 PROFILE = {
     "profile": "test.profile:1.0",
@@ -49,7 +58,60 @@ def profile(tmp_path):
 
 def test_loads_version_and_document_bindings(profile):
     assert profile.version == "test.profile:1.0"
-    assert profile.gui_bindings == {"metadata.name": "thing.name"}
+    # Bindings declared flat belong to the default group.
+    assert profile.gui_bindings == {DEFAULT_BINDING_GROUP: {"metadata.name": "thing.name"}}
+    assert binding_group(profile) == {"metadata.name": "thing.name"}
+
+
+def test_flat_bindings_are_returned_for_any_group(profile):
+    """A profile predating grouping still answers a named request."""
+    assert document_bindings(profile, "capacity") == {"metadata.name": ("thing", "name")}
+
+
+def test_named_binding_groups_do_not_collide(tmp_path):
+    for name, group, table in (("a", "capacity", "flavour"), ("b", "application", "service")):
+        (tmp_path / f"{name}.yaml").write_text(
+            yaml.safe_dump({
+                "metadata": {"gui_bindings": {group: {"node_template.name": f"{table}.name"}}},
+                "node_types": {},
+            }),
+            encoding="utf-8",
+        )
+    profile = load_profile(tmp_path)
+
+    assert document_bindings(profile, "capacity")["node_template.name"] == ("flavour", "name")
+    assert document_bindings(profile, "application")["node_template.name"] == ("service", "name")
+
+
+def test_key_value_binding_is_parsed_and_kept_out_of_document_bindings(tmp_path):
+    (tmp_path / "types.yaml").write_text(
+        yaml.safe_dump({
+            "metadata": {
+                "gui_bindings": {
+                    "application": {
+                        "node_template.name": "service.name",
+                        "node_template.properties": "extra{property_name: property_value}",
+                    }
+                }
+            },
+            "node_types": {},
+        }),
+        encoding="utf-8",
+    )
+    profile = load_profile(tmp_path)
+
+    # A key/value binding names no single column, so it is not a document binding.
+    assert set(document_bindings(profile, "application")) == {"node_template.name"}
+
+    free = free_property_binding(profile, "application")
+    assert (free.table, free.key_column, free.value_column) == (
+        "extra", "property_name", "property_value"
+    )
+
+
+def test_key_value_gui_name_requires_a_pair():
+    with pytest.raises(ValueError, match="key_column"):
+        parse_key_value_gui_name("extra")
 
 
 def test_inherited_properties_are_merged(profile):

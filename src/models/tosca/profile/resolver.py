@@ -27,6 +27,12 @@ TYPE_SECTIONS = (
 # Guards against a derived_from cycle in a hand-edited profile.
 MAX_INHERITANCE_DEPTH = 32
 
+# Document-level bindings are grouped by the kind of document they describe, so
+# a profile can build more than one (capacity, application) without the groups
+# colliding on shared keys such as node_template.name. A profile that declares
+# them flat has only one kind, and lands here.
+DEFAULT_BINDING_GROUP = "default"
+
 
 @dataclass
 class ResolvedType:
@@ -48,7 +54,8 @@ class Profile:
 
     version: str | None
     raw: Dict[str, Dict[str, Any]]
-    gui_bindings: Dict[str, str] = field(default_factory=dict)
+    # Group name -> {target: gui_name reference}.
+    gui_bindings: Dict[str, Dict[str, str]] = field(default_factory=dict)
 
     def type_names(self, section: str) -> List[str]:
         return sorted(self.raw.get(section, {}))
@@ -135,12 +142,12 @@ def load_profile(
 
     raw: Dict[str, Dict[str, Any]] = {section: {} for section in TYPE_SECTIONS}
     version: str | None = None
-    gui_bindings: Dict[str, str] = {}
+    gui_bindings: Dict[str, Dict[str, str]] = {}
 
     for path in sorted(profile_dir.glob("*.yaml")):
         document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         version = version or document.get("profile")
-        gui_bindings.update((document.get("metadata") or {}).get("gui_bindings") or {})
+        _merge_gui_bindings(gui_bindings, (document.get("metadata") or {}).get("gui_bindings"))
 
         for section in TYPE_SECTIONS:
             for type_name, definition in (document.get(section) or {}).items():
@@ -153,6 +160,23 @@ def load_profile(
     counts = ", ".join(f"{section}={len(raw[section])}" for section in TYPE_SECTIONS if raw[section])
     logger.info(f"load_profile: loaded {profile_dir.name} ({version}) - {counts}")
     return Profile(version=version, raw=raw, gui_bindings=gui_bindings)
+
+
+def _merge_gui_bindings(
+        groups: Dict[str, Dict[str, str]],
+        declared: Dict[str, Any] | None,
+) -> None:
+    """Merge one file's gui_bindings, accepting the flat or the grouped form.
+
+    A target mapped straight to a reference describes the profile's only kind of
+    document and lands in the default group. A target mapped to a nested mapping
+    names a group, which is how capacity and application bindings coexist.
+    """
+    for key, value in (declared or {}).items():
+        if isinstance(value, dict):
+            groups.setdefault(key, {}).update(value)
+        else:
+            groups.setdefault(DEFAULT_BINDING_GROUP, {})[key] = value
 
 
 def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
