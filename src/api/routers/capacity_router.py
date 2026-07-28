@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from src.models.app import get_router_config, get_validation_config
 from src.models.settings import get_profile_settings
-from src.models.tosca.profile import assemble, get_profile, validate
+from src.models.tosca.profile import assemble, get_profile, payload_schema, validate
 from src.models.tosca.puccini import validate_document
 from src.utils.logger import get_logger, log_api_calls
 
@@ -52,6 +52,14 @@ def _create_capacity_router() -> APIRouter:
         tags=[endpoint.tag if endpoint else "capacity"],
         summary=endpoint.summary if endpoint else "Build Capacity Template",
         description=endpoint.description if endpoint else None,
+        # The body shape follows the profile's bindings rather than a fixed
+        # model, so its schema is derived at startup instead of declared.
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {"application/json": {"schema": _payload_schema()}},
+            }
+        },
     )
     @log_api_calls()
     async def build_capacity(
@@ -147,6 +155,15 @@ def _create_capacity_router() -> APIRouter:
         )
 
     return router
+
+
+def _payload_schema() -> Dict[str, Any]:
+    """Derive the request body schema, falling back if the profile is unreachable."""
+    try:
+        return payload_schema(get_profile())
+    except Exception as error:  # noqa: BLE001 - documentation must not stop startup
+        logger.warning(f"_payload_schema: could not derive request schema ({error})")
+        return {"type": "object", "description": "Database rows keyed by table name"}
 
 
 def _to_yaml(document: Dict[str, Any]) -> str:
