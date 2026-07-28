@@ -41,20 +41,36 @@ def required_columns(profile: Profile, type_names: List[str] | None = None) -> D
         if column:
             required.setdefault(table, set()).add(column)
 
+    # A row belongs to exactly one node type, but sibling types share a table.
+    # A column may therefore only be NOT NULL if every type that could produce
+    # the row requires it - a property of one subtype has to stay nullable, or
+    # rows of its siblings could never be written.
+    per_type: List[Dict[str, Set[str]]] = []
     for type_name in type_names:
         try:
             bindings = collect_bindings(profile.resolve(type_name), profile)
         except (KeyError, ValueError):
             continue
+        this_type: Dict[str, Set[str]] = {}
         for binding in bindings:
             # A list property maps rows of a child table onto entries, so it is
             # the entry's own properties that decide what each row must hold.
             for entry in binding.entry_bindings:
                 if _is_mandatory(entry.definition) and entry.column:
-                    required.setdefault(binding.table, set()).add(entry.column)
+                    this_type.setdefault(binding.table, set()).add(entry.column)
 
             if binding.column and _is_mandatory(binding.definition):
-                required.setdefault(binding.table, set()).add(binding.column)
+                this_type.setdefault(binding.table, set()).add(binding.column)
+        per_type.append(this_type)
+
+    for table in {table for columns in per_type for table in columns}:
+        # Only types that actually bind the table get a say in it; a totals type
+        # says nothing about the columns of a table it never reads.
+        opinions = [columns[table] for columns in per_type if table in columns]
+        shared = set.intersection(*opinions) if opinions else set()
+        if shared:
+            required.setdefault(table, set()).update(shared)
+
     return required
 
 

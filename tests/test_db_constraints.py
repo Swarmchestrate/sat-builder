@@ -71,6 +71,57 @@ def test_optional_entry_property_is_not_required(required):
     assert "source" not in required["rule"]
 
 
+def test_sibling_subtypes_do_not_force_each_others_columns(tmp_path):
+    """A property of one subtype must stay nullable for its siblings' rows."""
+    document = {
+        "metadata": {"gui_bindings": {"node_template.name": "flavour.name"}},
+        "node_types": {
+            "Base": {
+                "properties": {
+                    "shared": {"type": "string", "required": True,
+                               "metadata": {"gui_name": "cap.shared"}},
+                }
+            },
+            "Aws": {
+                "derived_from": "Base",
+                "properties": {"ami": {"type": "string", "required": True,
+                                       "metadata": {"gui_name": "cap.ami"}}},
+            },
+            "OpenStack": {
+                "derived_from": "Base",
+                "properties": {"image": {"type": "string", "required": True,
+                                         "metadata": {"gui_name": "cap.image"}}},
+            },
+        },
+    }
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    required = required_columns(load_profile(tmp_path), ["Aws", "OpenStack"])
+
+    # shared is required by both, so it can be enforced.
+    assert "shared" in required["cap"]
+    # ami and image belong to one subtype each; making either NOT NULL would
+    # make the other subtype's rows unwritable.
+    assert "ami" not in required["cap"]
+    assert "image" not in required["cap"]
+
+
+def test_a_table_only_one_type_reads_is_still_enforced(tmp_path):
+    document = {
+        "metadata": {"gui_bindings": {"node_template.name": "flavour.name"}},
+        "node_types": {
+            "Thing": {"properties": {"a": {"type": "string", "required": True,
+                                           "metadata": {"gui_name": "only.a"}}}},
+            "Other": {"properties": {"b": {"type": "string", "required": True,
+                                           "metadata": {"gui_name": "elsewhere.b"}}}},
+        },
+    }
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    required = required_columns(load_profile(tmp_path), ["Thing", "Other"])
+    # Other never reads `only`, so it gets no say in that table.
+    assert required["only"] == {"a"}
+    assert required["elsewhere"] == {"b"}
+
+
 def test_ddl_is_transactional_and_sorted(required):
     ddl = to_ddl(required)
     assert ddl.index("BEGIN;") < ddl.index("ALTER TABLE") < ddl.index("COMMIT;")
