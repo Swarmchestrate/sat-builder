@@ -120,6 +120,14 @@ def test_plain_list_column_passes_through(document):
     assert templates(document)["big"]["properties"]["tags"] == ["a", "b"]
 
 
+def test_scalar_for_a_list_property_is_promoted(profile):
+    # A list binding collects one value per row, so a lone scalar becomes a
+    # single-item list rather than being dropped.
+    payload = {**PAYLOAD, "cap": {**PAYLOAD["cap"], "tags": "just-one"}}
+    doc, _ = assemble(profile, "Thing", payload)
+    assert templates(doc)["big"]["properties"]["tags"] == ["just-one"]
+
+
 def test_values_are_coerced_to_declared_types(document):
     assert templates(document)["big"]["properties"]["enabled"] is True
     assert templates(document)["big"]["capabilities"]["host"]["properties"]["speed"] == 2.5

@@ -1,0 +1,204 @@
+"""Validate a payload against the profile's declared types.
+
+Errors are reported in the caller's vocabulary - table, row and column - rather
+than in terms of the generated document, so a client can map a failure back to
+the field that caused it.
+
+This is deliberately narrow. It checks what the profile declares: required
+properties are present, and values match their declared types. Everything that
+needs a resolved topology - expression functions, requirement and capability
+matching, relationship validity - is left to a TOSCA processor.
+"""
+from dataclasses import dataclass
+from typing import Any, Dict, List, Mapping, Sequence
+
+from src.utils.logger import get_logger, log_function_calls
+
+from .assemble import resolve_value, _as_rows
+from .bindings import Binding, collect_bindings, document_bindings
+from .resolver import Profile
+
+logger = get_logger()
+
+_TRUTHY = {"true", "t", "yes", "y", "1"}
+_FALSEY = {"false", "f", "no", "n", "0"}
+
+
+@dataclass
+class ValidationError:
+    """One problem with the payload, located in the caller's terms."""
+
+    path: str
+    message: str
+    kind: str = "invalid"
+
+    def as_dict(self) -> Dict[str, str]:
+        return {"path": self.path, "message": self.message, "kind": self.kind}
+
+
+@log_function_calls()
+def validate(
+        profile: Profile,
+        type_names: str | Sequence[str],
+        payload: Mapping[str, Any],
+) -> List[ValidationError]:
+    """Check a payload against the profile. An empty list means it is valid."""
+    requested = [type_names] if isinstance(type_names, str) else list(type_names)
+    documents = document_bindings(profile)
+    instance_table, _ = documents.get("node_template.name", (None, None))
+    if not instance_table:
+        raise ValueError(
+            "Profile is missing a 'node_template.name' gui_binding; "
+            "nothing designates which table produces node templates."
+        )
+
+    instance_rows = _as_rows(payload.get(instance_table))
+    errors: List[ValidationError] = []
+
+    for type_name in requested:
+        resolved = profile.resolve(type_name)
+        bindings = collect_bindings(resolved, profile)
+        bound_paths = {binding.path for binding in bindings}
+
+        errors.extend(_unsatisfiable(resolved, bound_paths, type_name))
+
+        per_row = any(binding.table == instance_table for binding in bindings)
+        # A totals node is only checked when the payload carries data for it.
+        if not per_row and not _has_any_value(bindings, payload, instance_table):
+            continue
+
+        for binding in bindings:
+            if per_row and binding.table == instance_table:
+                # Varies per row, so report against each one.
+                for index, row in enumerate(instance_rows):
+                    errors.extend(_check(binding, payload, row, instance_table, index))
+            else:
+                # Shared across every node template; checking it once is enough.
+                errors.extend(_check(binding, payload, {}, instance_table, None))
+
+    return errors
+
+
+def _check(
+        binding: Binding,
+        payload: Mapping[str, Any],
+        row: Mapping[str, Any],
+        instance_table: str,
+        index: int | None,
+) -> List[ValidationError]:
+    """Check one binding: present if required, and of the declared type."""
+    value = resolve_value(binding, payload, row, instance_table)
+    path = _path_for(binding, instance_table, index)
+
+    if value is None:
+        if _is_required(binding) and "default" not in binding.definition:
+            return [ValidationError(
+                path=path,
+                message=f"'{_property_name(binding)}' is required by the profile but has no value",
+                kind="missing",
+            )]
+        return []
+
+    problem = _type_problem(value, binding.definition)
+    if problem:
+        return [ValidationError(
+            path=path,
+            message=f"'{_property_name(binding)}' {problem}",
+            kind="type",
+        )]
+
+    return []
+
+
+def _unsatisfiable(resolved, bound_paths, type_name: str) -> List[ValidationError]:
+    """Required properties with no binding at all can never be satisfied."""
+    errors = []
+
+    def scan(definitions: Mapping[str, Any], path_prefix: tuple):
+        for name, definition in (definitions or {}).items():
+            if not isinstance(definition, dict) or not definition.get("required"):
+                continue
+            if "default" in definition:
+                continue
+            if (path_prefix + (name,)) in bound_paths:
+                continue
+            errors.append(ValidationError(
+                path=f"{type_name}.{'.'.join(path_prefix + (name,))}",
+                message=f"'{name}' is required by the profile but has no gui_name binding, "
+                        f"so no payload can satisfy it",
+                kind="unbindable",
+            ))
+
+    scan(resolved.properties, ("properties",))
+    for cap_name, capability in (resolved.capabilities or {}).items():
+        scan(capability.get("properties"), ("capabilities", cap_name, "properties"))
+
+    return errors
+
+
+def _has_any_value(
+        bindings: Sequence[Binding],
+        payload: Mapping[str, Any],
+        instance_table: str,
+) -> bool:
+    return any(
+        resolve_value(binding, payload, {}, instance_table) is not None
+        for binding in bindings
+    )
+
+
+def _is_required(binding: Binding) -> bool:
+    return bool(binding.definition.get("required"))
+
+
+def _property_name(binding: Binding) -> str:
+    return binding.path[-1]
+
+
+def _path_for(binding: Binding, instance_table: str, index: int | None) -> str:
+    """Locate a binding in the payload, e.g. capacity_instance_type[0].cpu."""
+    if binding.table == instance_table and index is not None:
+        location = f"{binding.table}[{index}]"
+    else:
+        location = binding.table
+    return f"{location}.{binding.column}" if binding.column else location
+
+
+def _type_problem(value: Any, definition: Mapping[str, Any]) -> str | None:
+    """Describe why a value does not match its declared type, if it does not."""
+    declared = (definition or {}).get("type")
+
+    if declared == "boolean":
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, str) and value.strip().lower() in _TRUTHY | _FALSEY:
+            return None
+        return f"must be a boolean, got {type(value).__name__} {value!r}"
+
+    if declared in ("integer", "float"):
+        if isinstance(value, bool):
+            return f"must be {'an integer' if declared == 'integer' else 'a float'}, got a boolean"
+        converter = int if declared == "integer" else float
+        try:
+            converter(value)
+        except (TypeError, ValueError):
+            article = "an integer" if declared == "integer" else "a float"
+            return f"must be {article}, got {type(value).__name__} {value!r}"
+        return None
+
+    if declared == "string":
+        if isinstance(value, (dict, list)):
+            return f"must be a string, got {type(value).__name__}"
+        return None
+
+    if declared == "list":
+        if not isinstance(value, list):
+            return f"must be a list, got {type(value).__name__}"
+        return None
+
+    if declared == "map":
+        if not isinstance(value, dict):
+            return f"must be a map, got {type(value).__name__}"
+        return None
+
+    return None

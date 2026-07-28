@@ -194,7 +194,7 @@ def _build_node(
     node: Dict[str, Any] = {"type": node_type}
 
     for binding in bindings:
-        value = _value_for(binding, payload, instance_row, instance_table)
+        value = resolve_value(binding, payload, instance_row, instance_table)
         if value is None or value == [] or value == {}:
             # Absent values are omitted; the profile's defaults still apply
             # when the template is parsed against it.
@@ -204,13 +204,17 @@ def _build_node(
     return node
 
 
-def _value_for(
+def resolve_value(
         binding: Binding,
         payload: Mapping[str, Any],
         instance_row: Mapping[str, Any],
         instance_table: str,
 ) -> Any:
-    """Resolve a single binding against the payload."""
+    """Resolve a single binding against the payload.
+
+    Validation uses this too, so what it reports missing is exactly what
+    assembly would leave out.
+    """
     if binding.is_list:
         return _list_value(binding, payload)
 
