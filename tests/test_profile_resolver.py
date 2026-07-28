@@ -119,3 +119,30 @@ def test_parse_gui_name(reference, expected):
 def test_parse_gui_name_rejects_malformed():
     with pytest.raises(ValueError):
         parse_gui_name("not a reference!")
+
+
+def test_get_profile_picks_up_a_changed_profile(tmp_path, monkeypatch):
+    """A published profile change must reach a running service."""
+    import src.models.settings.profile as settings_module
+    from src.models.tosca.profile import provider
+
+    for key, value in {
+        "PROFILE__SOURCE": str(tmp_path), "PROFILE__IMPORT_URL": "https://example.test/p.yaml",
+        "PROFILE__NAMESPACE": "swch", "PROFILE__CACHE_DIR": str(tmp_path / "cache"),
+        "PROFILE__REFRESH_SECONDS": "0", "PROFILE__OFFLINE": "false",
+    }.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.setattr(settings_module, "_profile_settings_instance", None)
+    monkeypatch.setattr(provider, "_profile_instance", None)
+    monkeypatch.setattr(provider, "_profile_signature", None)
+
+    document = {"metadata": {"gui_bindings": {"node_template.name": "t.name"}},
+                "node_types": {"A": {}}}
+    path = tmp_path / "types.yaml"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    assert provider.get_profile().type_names("node_types") == ["A"]
+
+    document["node_types"]["B"] = {}
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+    # No restart, no force_refresh: the change is seen because the files differ.
+    assert provider.get_profile().type_names("node_types") == ["A", "B"]
