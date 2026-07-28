@@ -27,6 +27,9 @@ class Binding:
     column: str | None
     filters: Dict[str, str] = field(default_factory=dict)
     definition: Dict[str, Any] = field(default_factory=dict)
+    # Populated for list properties whose entry_schema is a bound data type,
+    # so each row of the source table becomes one entry.
+    entry_bindings: List["Binding"] = field(default_factory=list)
 
     @property
     def declared_type(self) -> str | None:
@@ -58,8 +61,12 @@ def parse_gui_name(reference: str) -> Tuple[str, str | None, Dict[str, str]]:
     return match.group("table"), match.group("column"), filters
 
 
-def collect_bindings(resolved: ResolvedType) -> List[Binding]:
-    """Every bound property on a resolved type, with its node-template path."""
+def collect_bindings(resolved: ResolvedType, profile: Profile | None = None) -> List[Binding]:
+    """Every bound property on a resolved type, with its node-template path.
+
+    Passing the profile resolves entry_schema bindings for list properties,
+    which assembly needs to turn rows into entries.
+    """
     bindings: List[Binding] = []
 
     for name, definition in (resolved.properties or {}).items():
@@ -72,6 +79,13 @@ def collect_bindings(resolved: ResolvedType) -> List[Binding]:
             binding = _binding_for(("capabilities", cap_name, "properties", name), definition)
             if binding:
                 bindings.append(binding)
+
+    if profile:
+        for binding in bindings:
+            # A primitive entry_schema (string, integer) has no bindings of its
+            # own; only a declared data type maps rows onto entry properties.
+            if binding.is_list and binding.entry_schema in profile.raw.get("data_types", {}):
+                binding.entry_bindings = entry_bindings(profile, binding.entry_schema)
 
     return bindings
 

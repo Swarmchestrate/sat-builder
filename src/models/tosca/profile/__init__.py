@@ -7,8 +7,10 @@ types from example instances.
 from .resolver import Profile, ResolvedType, load_profile
 from .fetcher import ensure_profile
 from .bindings import Binding, collect_bindings, document_bindings, entry_bindings, parse_gui_name
+from .assemble import assemble
 
 __all__ = [
+    "assemble",
     "Profile",
     "ResolvedType",
     "load_profile",
