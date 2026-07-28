@@ -229,3 +229,27 @@ def test_free_property_without_a_name_is_reported(free_profile):
     payload = free_payload([{"service_id": 1, "property_value": "3"}])
     errors = validate(free_profile, "Service", payload, bindings_group="application")
     assert [e.kind for e in errors] == ["missing"]
+
+
+def test_duplicate_node_template_names_are_rejected(free_profile):
+    """Two rows with one name would silently collapse into one node template."""
+    payload = {
+        "service": [
+            {"id": 1, "name": "web", "image": "nginx"},
+            {"id": 2, "name": "web", "image": "busybox"},
+        ]
+    }
+    errors = validate(free_profile, "Service", payload, bindings_group="application")
+    duplicates = [e for e in errors if e.kind == "duplicate"]
+    assert [e.path for e in duplicates] == ["service[1].name"]
+    assert "already used by row 1" in duplicates[0].message
+
+
+def test_distinct_node_template_names_pass(free_profile):
+    payload = {
+        "service": [
+            {"id": 1, "name": "web", "image": "nginx"},
+            {"id": 2, "name": "worker", "image": "busybox"},
+        ]
+    }
+    assert validate(free_profile, "Service", payload, bindings_group="application") == []

@@ -63,6 +63,9 @@ def validate(
     instance_rows = _as_rows(payload.get(instance_table))
     errors: List[ValidationError] = []
 
+    _, name_column = documents.get("node_template.name", (None, None))
+    errors.extend(_duplicate_names(instance_rows, instance_table, name_column))
+
     for type_name in requested:
         resolved = profile.resolve(type_name)
         bindings = collect_bindings(resolved, profile)
@@ -90,6 +93,37 @@ def validate(
             )
         )
 
+    return errors
+
+
+def _duplicate_names(
+        instance_rows: Sequence[Mapping[str, Any]],
+        instance_table: str,
+        name_column: str | None,
+) -> List[ValidationError]:
+    """Reject two rows that would produce the same node template.
+
+    Node template names are keys, so the second row would silently replace the
+    first and its data would vanish from the document without trace.
+    """
+    if not name_column:
+        return []
+
+    seen: Dict[str, int] = {}
+    errors: List[ValidationError] = []
+    for index, row in enumerate(instance_rows):
+        name = row.get(name_column)
+        if not name:
+            continue
+        if name in seen:
+            errors.append(ValidationError(
+                path=f"{instance_table}[{index}].{name_column}",
+                message=f"'{name}' is already used by row {seen[name] + 1}; "
+                        f"each one needs its own name",
+                kind="duplicate",
+            ))
+            continue
+        seen[str(name)] = index
     return errors
 
 
