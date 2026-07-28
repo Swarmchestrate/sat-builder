@@ -29,6 +29,9 @@ ENV/
 logs/
 *.log
 
+# Locally cached TOSCA profile
+profile_cache/
+
 # Tests and coverage
 .pytest_cache/
 .coverage

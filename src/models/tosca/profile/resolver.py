@@ -12,6 +12,7 @@ from typing import Any, Dict, List
 import yaml
 
 from src.utils.logger import get_logger
+from .fetcher import ensure_profile
 
 logger = get_logger()
 
@@ -112,9 +113,23 @@ class Profile:
         return expanded
 
 
-def load_profile(profile_dir: str | Path) -> Profile:
-    """Load every YAML file in a profile directory and merge its type sections."""
-    profile_dir = Path(profile_dir)
+def load_profile(
+        source: str | Path,
+        cache_dir: str | Path | None = None,
+        refresh_seconds: int = 3600,
+        offline: bool = False,
+) -> Profile:
+    """Load a profile from a local directory or a URL.
+
+    A URL source is mirrored into cache_dir first; the resolver only ever reads
+    local files. A directory source is read directly, which is what tests use.
+    """
+    if isinstance(source, str) and source.startswith(("http://", "https://")):
+        if not cache_dir:
+            raise ValueError("cache_dir is required when loading a profile from a URL")
+        source = ensure_profile(source, cache_dir, refresh_seconds, offline)
+
+    profile_dir = Path(source)
     if not profile_dir.is_dir():
         raise NotADirectoryError(f"Profile directory not found: {profile_dir}")
 
