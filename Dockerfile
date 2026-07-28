@@ -45,7 +45,6 @@ COPY env.template ./.env
 # Copy application code and required resources
 COPY configs ./configs
 COPY src ./src
-COPY templates ./templates
 
 # Create logs directory for application logs
 RUN mkdir -p logs
