@@ -13,8 +13,14 @@ from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 from src.utils.logger import get_logger, log_function_calls
 
-from .bindings import Binding, collect_bindings, document_bindings
-from .resolver import Profile
+from .bindings import (
+    Binding,
+    KeyValueBinding,
+    collect_bindings,
+    document_bindings,
+    free_property_binding,
+)
+from .resolver import Profile, ResolvedType
 
 logger = get_logger()
 
@@ -40,6 +46,7 @@ def assemble(
         imports: Any = None,
         metadata: Dict[str, Any] | None = None,
         description: str | None = None,
+        bindings_group: str | None = None,
 ) -> Tuple[Dict[str, Any], List[Dict[str, str]]]:
     """Build a TOSCA document for one capacity.
 
@@ -57,12 +64,15 @@ def assemble(
         imports: Imports block to emit verbatim
         metadata: Base metadata, merged under any bound values
         description: Overrides the bound description when given
+        bindings_group: Which document-level binding group to use, e.g.
+            'capacity' or 'application'
 
     Returns:
         Tuple of (document, warnings)
     """
     requested = [type_names] if isinstance(type_names, str) else list(type_names)
-    documents = document_bindings(profile)
+    documents = document_bindings(profile, bindings_group)
+    free_binding = free_property_binding(profile, bindings_group)
     warnings: List[Dict[str, str]] = []
 
     instance_table, name_column = documents.get("node_template.name", (None, None))
@@ -80,8 +90,9 @@ def assemble(
     per_row_types = []
 
     for type_name in requested:
-        bindings = collect_bindings(profile.resolve(type_name), profile)
-        for table, columns in _claimed_columns(bindings).items():
+        resolved = profile.resolve(type_name)
+        bindings = collect_bindings(resolved, profile)
+        for table, columns in _claimed_columns(bindings, free_binding).items():
             claimed.setdefault(table, set()).update(columns)
 
         if any(binding.table == instance_table for binding in bindings):
@@ -89,6 +100,7 @@ def assemble(
             _add_per_row(
                 node_templates, warnings, bindings, payload, instance_rows,
                 instance_table, name_column, type_name, namespace,
+                resolved, free_binding,
             )
         else:
             _add_singleton(
@@ -132,6 +144,8 @@ def _add_per_row(
         name_column: str | None,
         type_name: str,
         namespace: str,
+        resolved: ResolvedType | None = None,
+        free_binding: KeyValueBinding | None = None,
 ) -> None:
     """One node template per row of the instance table."""
     for index, row in enumerate(instance_rows):
@@ -145,9 +159,13 @@ def _add_per_row(
         if name in node_templates:
             warnings.append({"node_template": f"Duplicate node template name '{name}', overwriting"})
 
-        node_templates[str(name)] = _build_node(
+        node = _build_node(
             bindings, payload, row, instance_table, f"{namespace}:{type_name}"
         )
+        _add_free_properties(
+            node, warnings, free_binding, payload, row, instance_table, resolved
+        )
+        node_templates[str(name)] = node
 
 
 def _add_singleton(
@@ -216,7 +234,7 @@ def resolve_value(
     assembly would leave out.
     """
     if binding.is_list:
-        return _list_value(binding, payload)
+        return _list_value(binding, payload, instance_row, instance_table)
 
     if binding.table == instance_table:
         source = instance_row
@@ -234,9 +252,22 @@ def resolve_value(
     return _coerce(source.get(binding.column), binding.definition)
 
 
-def _list_value(binding: Binding, payload: Mapping[str, Any]) -> List[Any] | None:
+def _list_value(
+        binding: Binding,
+        payload: Mapping[str, Any],
+        instance_row: Mapping[str, Any] | None = None,
+        instance_table: str | None = None,
+) -> List[Any] | None:
     """Resolve a list-typed binding into a list of entries."""
-    rows = [row for row in _as_rows(payload.get(binding.table)) if _matches(row, binding.filters)]
+    if instance_table and binding.table == instance_table:
+        # A list column on the instance table belongs to the row being built,
+        # not to every row of it.
+        rows = [instance_row] if instance_row else []
+        rows = [row for row in rows if _matches(row, binding.filters)]
+    else:
+        rows = _scoped_rows(
+            binding.table, binding.filters, payload, instance_row, instance_table
+        )
     if not rows:
         return None
 
@@ -257,6 +288,71 @@ def _list_value(binding: Binding, payload: Mapping[str, Any]) -> List[Any] | Non
         if entry:
             entries.append(entry)
     return entries or None
+
+
+def _scoped_rows(
+        table: str,
+        filters: Mapping[str, str],
+        payload: Mapping[str, Any],
+        instance_row: Mapping[str, Any] | None,
+        instance_table: str | None,
+) -> List[Mapping[str, Any]]:
+    """Rows of a child table belonging to the node template being built.
+
+    A child table that carries a `<instance_table>_id` column is per-instance:
+    each node template gets only its own rows. One that does not is shared, and
+    every node template gets all of them - which is how a capacity's port rules
+    apply to all of its flavours.
+    """
+    rows = [row for row in _as_rows(payload.get(table)) if _matches(row, filters)]
+    if not rows or not instance_row or not instance_table:
+        return rows
+
+    foreign_key = f"{instance_table}_id"
+    if not any(foreign_key in row for row in rows):
+        return rows
+
+    instance_id = instance_row.get("id")
+    if instance_id is None:
+        return rows
+    return [row for row in rows if row.get(foreign_key) == instance_id]
+
+
+def _add_free_properties(
+        node: Dict[str, Any],
+        warnings: List[Dict[str, str]],
+        free_binding: KeyValueBinding | None,
+        payload: Mapping[str, Any],
+        instance_row: Mapping[str, Any],
+        instance_table: str,
+        resolved: ResolvedType | None,
+) -> None:
+    """Place properties the payload names for itself onto a node template.
+
+    Unknown names are dropped with a warning rather than emitted: validation
+    rejects them outright, so anything reaching here in a build that skipped
+    validation would produce a document the profile cannot parse.
+    """
+    if not free_binding:
+        return
+
+    declared = (resolved.properties if resolved else {}) or {}
+    rows = _scoped_rows(
+        free_binding.table, free_binding.filters, payload, instance_row, instance_table
+    )
+
+    for row in rows:
+        name = row.get(free_binding.key_column)
+        value = row.get(free_binding.value_column)
+        if not name or value is None:
+            continue
+        definition = declared.get(str(name))
+        if definition is None:
+            warnings.append({
+                "properties": f"'{name}' is not a property of this type and was not set"
+            })
+            continue
+        _set_path(node, ("properties", str(name)), _coerce(value, definition))
 
 
 def _document_value(source: Tuple[str, str | None] | None, payload: Mapping[str, Any]) -> Any:
@@ -321,7 +417,10 @@ def _as_rows(value: Any) -> List[Mapping[str, Any]]:
     return []
 
 
-def _claimed_columns(bindings: Sequence[Binding]) -> Dict[str, set]:
+def _claimed_columns(
+        bindings: Sequence[Binding],
+        free_binding: KeyValueBinding | None = None,
+) -> Dict[str, set]:
     """Every column a set of bindings reads, including entries and filters."""
     claimed: Dict[str, set] = {}
     for binding in bindings:
@@ -333,6 +432,12 @@ def _claimed_columns(bindings: Sequence[Binding]) -> Dict[str, set]:
         columns.update(
             entry.column for entry in binding.entry_bindings if entry.column
         )
+
+    if free_binding:
+        columns = claimed.setdefault(free_binding.table, set())
+        columns.update({free_binding.key_column, free_binding.value_column})
+        columns.update(free_binding.filters)
+
     return claimed
 
 

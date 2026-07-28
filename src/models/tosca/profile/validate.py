@@ -14,9 +14,15 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 from src.utils.logger import get_logger, log_function_calls
 
-from .assemble import resolve_value, _as_rows
-from .bindings import Binding, collect_bindings, document_bindings
-from .resolver import Profile
+from .assemble import resolve_value, _as_rows, _scoped_rows
+from .bindings import (
+    Binding,
+    KeyValueBinding,
+    collect_bindings,
+    document_bindings,
+    free_property_binding,
+)
+from .resolver import Profile, ResolvedType
 
 logger = get_logger()
 
@@ -41,10 +47,12 @@ def validate(
         profile: Profile,
         type_names: str | Sequence[str],
         payload: Mapping[str, Any],
+        bindings_group: str | None = None,
 ) -> List[ValidationError]:
     """Check a payload against the profile. An empty list means it is valid."""
     requested = [type_names] if isinstance(type_names, str) else list(type_names)
-    documents = document_bindings(profile)
+    documents = document_bindings(profile, bindings_group)
+    free_binding = free_property_binding(profile, bindings_group)
     instance_table, _ = documents.get("node_template.name", (None, None))
     if not instance_table:
         raise ValueError(
@@ -75,6 +83,72 @@ def validate(
             else:
                 # Shared across every node template; checking it once is enough.
                 errors.extend(_check(binding, payload, {}, instance_table, None))
+
+        errors.extend(
+            _check_free_properties(
+                free_binding, resolved, payload, instance_rows, instance_table
+            )
+        )
+
+    return errors
+
+
+def _check_free_properties(
+        free_binding: KeyValueBinding | None,
+        resolved: ResolvedType,
+        payload: Mapping[str, Any],
+        instance_rows: Sequence[Mapping[str, Any]],
+        instance_table: str,
+) -> List[ValidationError]:
+    """Check properties the payload names for itself.
+
+    These are the point of the free slots: the user supplies a property name the
+    form never anticipated, and the profile is what says whether it exists and
+    what type it should be.
+    """
+    if not free_binding:
+        return []
+
+    declared = resolved.properties or {}
+    errors: List[ValidationError] = []
+
+    for index, instance_row in enumerate(instance_rows or [{}]):
+        rows = _scoped_rows(
+            free_binding.table, free_binding.filters, payload,
+            instance_row, instance_table,
+        )
+        for row in rows:
+            name = row.get(free_binding.key_column)
+            value = row.get(free_binding.value_column)
+            path = f"{free_binding.table}[{index}].{free_binding.key_column}"
+
+            if not name:
+                errors.append(ValidationError(
+                    path=path,
+                    message=f"a row of '{free_binding.table}' has no property name",
+                    kind="missing",
+                ))
+                continue
+
+            definition = declared.get(str(name))
+            if definition is None:
+                errors.append(ValidationError(
+                    path=path,
+                    message=f"'{name}' is not a property of {resolved.name}",
+                    kind="unknown_property",
+                ))
+                continue
+
+            if value is None:
+                continue
+
+            problem = _type_problem(value, definition)
+            if problem:
+                errors.append(ValidationError(
+                    path=f"{free_binding.table}[{index}].{free_binding.value_column}",
+                    message=f"'{name}' {problem}",
+                    kind="type",
+                ))
 
     return errors
 

@@ -223,3 +223,119 @@ def test_profile_without_node_template_binding_raises(tmp_path):
     (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValueError, match="node_template.name"):
         assemble(load_profile(tmp_path), "Thing", PAYLOAD)
+
+
+# Free-form properties: the payload names the property it sets, rather than the
+# profile fixing it at authoring time.
+
+FREE_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {
+        "gui_bindings": {
+            "application": {
+                "metadata.name": "app.name",
+                "node_template.name": "service.name",
+                "node_template.properties": "extra{property_name: property_value}",
+            }
+        }
+    },
+    "node_types": {
+        "Service": {
+            "properties": {
+                "image": {"type": "string", "metadata": {"gui_name": "service.image"}},
+                "replicas": {"type": "integer"},
+                "hostname": {"type": "string"},
+            }
+        }
+    },
+}
+
+FREE_PAYLOAD = {
+    "app": {"name": "my-app"},
+    "service": [
+        {"id": 1, "name": "web", "image": "nginx"},
+        {"id": 2, "name": "worker", "image": "busybox"},
+    ],
+    "extra": [
+        {"service_id": 1, "property_name": "replicas", "property_value": "3"},
+        {"service_id": 2, "property_name": "hostname", "property_value": "worker-0"},
+    ],
+}
+
+
+@pytest.fixture
+def free_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(FREE_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def test_free_properties_land_on_their_own_node_template(free_profile):
+    doc, _ = assemble(free_profile, "Service", FREE_PAYLOAD, bindings_group="application")
+    nodes = templates(doc)
+    assert nodes["web"]["properties"]["replicas"] == 3
+    assert nodes["worker"]["properties"]["hostname"] == "worker-0"
+    # Scoped by foreign key, so neither leaks into the other.
+    assert "hostname" not in nodes["web"]["properties"]
+    assert "replicas" not in nodes["worker"]["properties"]
+
+
+def test_free_property_is_coerced_to_its_declared_type(free_profile):
+    doc, _ = assemble(free_profile, "Service", FREE_PAYLOAD, bindings_group="application")
+    assert templates(doc)["web"]["properties"]["replicas"] == 3
+
+
+def test_unknown_free_property_is_dropped_with_a_warning(free_profile):
+    payload = {
+        **FREE_PAYLOAD,
+        "extra": [{"service_id": 1, "property_name": "nonsense", "property_value": "x"}],
+    }
+    doc, warnings = assemble(free_profile, "Service", payload, bindings_group="application")
+    assert "nonsense" not in templates(doc)["web"].get("properties", {})
+    assert any("nonsense" in w.get("properties", "") for w in warnings)
+
+
+def test_free_property_table_is_not_reported_as_unclaimed(free_profile):
+    _, warnings = assemble(free_profile, "Service", FREE_PAYLOAD, bindings_group="application")
+    assert not any("extra" in w.get("payload", "") for w in warnings)
+
+
+def test_child_rows_without_a_foreign_key_are_shared(free_profile):
+    """A child table not keyed to the instance applies to every node template."""
+    payload = {
+        **FREE_PAYLOAD,
+        "extra": [{"property_name": "replicas", "property_value": "5"}],
+    }
+    doc, _ = assemble(free_profile, "Service", payload, bindings_group="application")
+    nodes = templates(doc)
+    assert nodes["web"]["properties"]["replicas"] == 5
+    assert nodes["worker"]["properties"]["replicas"] == 5
+
+
+def test_list_column_on_the_instance_table_is_per_row(tmp_path):
+    """A list column on the instance table must not gather every row's value."""
+    document = {
+        "profile": "test:1.0",
+        "metadata": {"gui_bindings": {"node_template.name": "service.name"}},
+        "node_types": {
+            "Service": {
+                "properties": {
+                    "command": {
+                        "type": "list",
+                        "entry_schema": "string",
+                        "metadata": {"gui_name": "service.commands"},
+                    }
+                }
+            }
+        },
+    }
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    payload = {
+        "service": [
+            {"id": 1, "name": "web", "commands": ["nginx"]},
+            {"id": 2, "name": "worker"},
+        ]
+    }
+    doc, _ = assemble(load_profile(tmp_path), "Service", payload)
+    nodes = templates(doc)
+    assert nodes["web"]["properties"]["command"] == ["nginx"]
+    assert "command" not in nodes["worker"].get("properties", {})

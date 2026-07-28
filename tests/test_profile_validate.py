@@ -164,3 +164,68 @@ def test_profile_without_node_template_binding_raises(tmp_path):
     (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValueError, match="node_template.name"):
         validate(load_profile(tmp_path), "Thing", VALID)
+
+
+# Free-form properties: the profile is what says whether a name the user typed
+# exists, and what type its value should be.
+
+FREE_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {
+        "gui_bindings": {
+            "application": {
+                "node_template.name": "service.name",
+                "node_template.properties": "extra{property_name: property_value}",
+            }
+        }
+    },
+    "node_types": {
+        "Service": {
+            "properties": {
+                "image": {"type": "string", "metadata": {"gui_name": "service.image"}},
+                "replicas": {"type": "integer"},
+            }
+        }
+    },
+}
+
+
+@pytest.fixture
+def free_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(FREE_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def free_payload(rows):
+    return {
+        "service": [{"id": 1, "name": "web", "image": "nginx"}],
+        "extra": rows,
+    }
+
+
+def test_known_free_property_of_the_right_type_passes(free_profile):
+    payload = free_payload([{"service_id": 1, "property_name": "replicas", "property_value": "3"}])
+    assert validate(free_profile, "Service", payload, bindings_group="application") == []
+
+
+def test_unknown_free_property_is_reported(free_profile):
+    payload = free_payload([{"service_id": 1, "property_name": "nonsense", "property_value": "x"}])
+    errors = validate(free_profile, "Service", payload, bindings_group="application")
+    assert [e.kind for e in errors] == ["unknown_property"]
+    assert "nonsense" in errors[0].message
+    assert "Service" in errors[0].message
+
+
+def test_free_property_of_the_wrong_type_is_reported(free_profile):
+    payload = free_payload([
+        {"service_id": 1, "property_name": "replicas", "property_value": "lots"},
+    ])
+    errors = validate(free_profile, "Service", payload, bindings_group="application")
+    assert [e.kind for e in errors] == ["type"]
+    assert errors[0].path == "extra[0].property_value"
+
+
+def test_free_property_without_a_name_is_reported(free_profile):
+    payload = free_payload([{"service_id": 1, "property_value": "3"}])
+    errors = validate(free_profile, "Service", payload, bindings_group="application")
+    assert [e.kind for e in errors] == ["missing"]

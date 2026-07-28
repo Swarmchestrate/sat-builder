@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Sequence
 
 from src.utils.logger import get_logger
 
-from .bindings import Binding, collect_bindings, document_bindings
+from .bindings import Binding, collect_bindings, document_bindings, free_property_binding
 from .resolver import Profile
 
 logger = get_logger()
@@ -25,18 +25,24 @@ _JSON_TYPES = {
 }
 
 
-def payload_schema(profile: Profile, type_names: Sequence[str] | None = None) -> Dict[str, Any]:
+def payload_schema(
+        profile: Profile,
+        type_names: Sequence[str] | None = None,
+        bindings_group: str | None = None,
+) -> Dict[str, Any]:
     """Build a JSON Schema for the table-keyed payload.
 
     Args:
         profile: Profile supplying the bindings
         type_names: Node types to document. Defaults to every bound type, so
             the schema covers everything the endpoint can consume.
+        bindings_group: Which document-level binding group to document
 
     Returns:
         A JSON Schema object describing the request body
     """
-    documents = document_bindings(profile)
+    documents = document_bindings(profile, bindings_group)
+    free_binding = free_property_binding(profile, bindings_group)
     instance_table, _ = documents.get("node_template.name", (None, None))
 
     if type_names is None:
@@ -54,6 +60,14 @@ def payload_schema(profile: Profile, type_names: Sequence[str] | None = None) ->
     for type_name in type_names:
         for binding in collect_bindings(profile.resolve(type_name), profile):
             _add_binding(tables, required, arrays, binding, type_name)
+
+    if free_binding:
+        arrays.add(free_binding.table)
+        _add_column(tables, free_binding.table, free_binding.key_column, {"type": "string"},
+                    "Name of the property to set. Must be one the node type declares")
+        _add_column(tables, free_binding.table, free_binding.value_column, {"type": "string"},
+                    "Value for that property, coerced to the type the profile declares")
+        required.setdefault(free_binding.table, set()).add(free_binding.key_column)
 
     properties: Dict[str, Any] = {}
     for table, columns in sorted(tables.items()):
@@ -75,7 +89,7 @@ def payload_schema(profile: Profile, type_names: Sequence[str] | None = None) ->
 
     return {
         "type": "object",
-        "title": "Capacity payload",
+        "title": f"{(bindings_group or 'Document').capitalize()} payload",
         "description": "Database rows keyed by table name. Derived from the profile's "
                        "gui_name bindings, so it changes with the profile.",
         "properties": properties,
