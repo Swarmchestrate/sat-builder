@@ -21,13 +21,12 @@ from src.models.app import get_fastapi_config, get_swagger_config
 from src.models.settings import get_cors_settings
 from src.utils.logger import get_logger
 from .lifespan import lifespan
-from .routers import info_router, health_router, capacity_router
+from .routers import info_router, health_router, application_router, capacity_router
 
 logger = get_logger()
 
-# Build routers, in registration order. Applications are not yet bound to the
-# profile, so only capacity is served.
-TOSCA_ROUTERS = (capacity_router,)
+# Build routers, in registration order.
+TOSCA_ROUTERS = (capacity_router, application_router)
 
 
 def _create_fastapi_app() -> FastAPI:
@@ -283,8 +282,9 @@ def _register_tosca_routers(fastapi_app: FastAPI):
     function_name = inspect.currentframe().f_code.co_name
     logger.info("Registering TOSCA build routers...")
 
-    fastapi_app.include_router(capacity_router)
-    logger.debug(f"{function_name}: capacity router registered successfully")
+    for router in TOSCA_ROUTERS:
+        fastapi_app.include_router(router)
+    logger.debug(f"{function_name}: {len(TOSCA_ROUTERS)} build routers registered")
 
     logger.info(f"All {len(TOSCA_ROUTERS)} TOSCA routers registered successfully")
 
