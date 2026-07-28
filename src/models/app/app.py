@@ -9,6 +9,7 @@ import inspect
 import json
 from typing import Dict, Any, Tuple, Optional
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict, YamlConfigSettingsSource, PydanticBaseSettingsSource
 
 from src.utils.logger import get_logger
@@ -20,6 +21,8 @@ from .tags import Tags
 from .tosca_types import ToscaTypes
 from .urls import URLs
 from .validation import Validation
+
+load_dotenv()
 
 logger = get_logger()
 
@@ -43,6 +46,8 @@ class App(BaseSettings):
     model_config = SettingsConfigDict(
         case_sensitive=False,
         extra="forbid",
+        env_prefix="APP__",
+        env_nested_delimiter="__",
         yaml_file=str(get_project_root() / "configs" / "app.yaml"),
         yaml_file_encoding="utf-8",
     )
@@ -64,12 +69,13 @@ class App(BaseSettings):
             dotenv_settings: PydanticBaseSettingsSource,
             file_secret_settings: PydanticBaseSettingsSource,
     ) -> Tuple[PydanticBaseSettingsSource, ...]:
-        """Customize configuration sources to load from YAML only.
+        """Customize configuration sources to load from YAML, overridable by env.
 
         Returns:
-            Tuple of configuration sources with YAML as the primary source
+            Tuple of configuration sources with YAML as the base source and
+            APP__ prefixed environment variables taking precedence over it
         """
-        return init_settings, YamlConfigSettingsSource(settings_cls)
+        return init_settings, env_settings, YamlConfigSettingsSource(settings_cls)
 
     def get_fastapi_config(self) -> Dict[str, Any]:
         """Get FastAPI application configuration dictionary.
