@@ -1,6 +1,7 @@
 """Profile Configuration"""
 
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic import Field, field_validator, model_validator
@@ -20,13 +21,23 @@ class ProfileSettings(BaseSettings):
         env_file_encoding="utf-8"
     )
 
-    url: str = Field(
+    source: str = Field(
         ...,
-        description="URL of the profile index (profile.yaml)"
+        description="Where to load the profile from: the URL of a profile index "
+                    "(profile.yaml), or a local directory holding one"
+    )
+    import_url: str = Field(
+        ...,
+        description="Profile URL written into the imports of generated documents. "
+                    "Separate from source, which may be a local checkout"
+    )
+    namespace: str = Field(
+        ...,
+        description="Import namespace prefix applied to node types, e.g. swch"
     )
     cache_dir: str = Field(
         ...,
-        description="Local directory the fetched profile is cached in"
+        description="Local directory a fetched profile is cached in"
     )
     refresh_seconds: int = Field(
         ...,
@@ -44,7 +55,9 @@ class ProfileSettings(BaseSettings):
         """Validate that all PROFILE__ env vars map to valid fields."""
         profile_env_vars = {k: v for k, v in os.environ.items() if k.startswith("PROFILE__")}
 
-        valid_fields = {"url", "cache_dir", "refresh_seconds", "offline"}
+        valid_fields = {
+            "source", "import_url", "namespace", "cache_dir", "refresh_seconds", "offline",
+        }
 
         for env_var in profile_env_vars.keys():
             field_name = env_var[9:].lower()  # Remove "PROFILE__" (9 chars)
@@ -57,11 +70,22 @@ class ProfileSettings(BaseSettings):
 
         return values
 
-    @field_validator("url")
+    @field_validator("source")
     @classmethod
-    def validate_url(cls, v: str) -> str:
+    def validate_source(cls, v: str) -> str:
+        if v.startswith(("http://", "https://")):
+            return v
+        if Path(v).is_dir():
+            return v
+        raise ValueError(
+            f"Profile source must be an http(s) URL or an existing directory, got '{v}'"
+        )
+
+    @field_validator("import_url")
+    @classmethod
+    def validate_import_url(cls, v: str) -> str:
         if not v.startswith(("http://", "https://")):
-            raise ValueError("Profile URL must be an http or https URL")
+            raise ValueError("Profile import URL must be an http or https URL")
         return v
 
     @field_validator("cache_dir")

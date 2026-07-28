@@ -21,9 +21,13 @@ from src.models.app import get_fastapi_config, get_swagger_config
 from src.models.settings import get_cors_settings
 from src.utils.logger import get_logger
 from .lifespan import lifespan
-from .routers import info_router, health_router, tosca_routers
+from .routers import info_router, health_router, capacity_router
 
 logger = get_logger()
+
+# Build routers, in registration order. Applications are not yet bound to the
+# profile, so only capacity is served.
+TOSCA_ROUTERS = (capacity_router,)
 
 
 def _create_fastapi_app() -> FastAPI:
@@ -83,10 +87,10 @@ def _create_fastapi_app() -> FastAPI:
     # Register dynamically generated TOSCA-related routers for domain-specific functionality
     logger.debug(f"{function_name}: Starting TOSCA router registration")
     _register_tosca_routers(fastapi_app)
-    logger.debug(f"{function_name}: TOSCA router registration completed - {len(tosca_routers)} routers registered")
+    logger.debug(f"{function_name}: TOSCA router registration completed - {len(TOSCA_ROUTERS)} routers registered")
 
     # Step 4: Log a comprehensive final application state for deployment verification
-    total_routers = len(core_routers) + len(tosca_routers)
+    total_routers = len(core_routers) + len(TOSCA_ROUTERS)
     logger.info(f"Successfully registered {total_routers} routers")
 
     # Final success confirmation with visual separators for log readability
@@ -267,53 +271,22 @@ def _register_core_routers(fastapi_app: FastAPI) -> list[tuple[str, APIRouter]]:
 
 
 def _register_tosca_routers(fastapi_app: FastAPI):
-    """Register dynamically generated TOSCA-related routers with the FastAPI instance.
-
-    Adds domain-specific routers that handle TOSCA (Topology and Orchestration
-    Specification for Cloud Applications) related functionality. These routers
-    are generated dynamically based on TOSCA templates and provide endpoints
-    for orchestration, deployment, and management operations.
-
-    TOSCA routers handle:
-    - Template validation and processing
-    - Service orchestration endpoints
-    - Deployment management APIs
-    - Resource lifecycle operations
+    """Register the TOSCA build routers with the FastAPI instance.
 
     Args:
         fastapi_app: FastAPI application instance to register TOSCA routers with
 
     Returns:
         None: Function modifies the FastAPI app in-place by including routers
-
-    Side Effects:
-        - Modifies the FastAPI app by including dynamically generated routers
-        - Logs each TOSCA router registration with type information
-
-    Global Dependencies:
-        - tosca_routers: Module-level list of generated TOSCA router instances
     """
     # noinspection PyUnresolvedReferences
     function_name = inspect.currentframe().f_code.co_name
-    logger.info("Registering dynamically generated TOSCA-related routers...")
+    logger.info("Registering TOSCA build routers...")
 
-    # Log the number of TOSCA routers available for registration
-    logger.debug(f"{function_name}: {len(tosca_routers)} TOSCA routers available for registration")
+    fastapi_app.include_router(capacity_router)
+    logger.debug(f"{function_name}: capacity router registered successfully")
 
-    # Register each dynamically generated TOSCA router
-    for tosca_type, router in tosca_routers:
-        logger.info(f"Registering TOSCA router: {tosca_type.upper()}")
-
-        # Log additional router details for debugging and monitoring
-        router_routes = len(router.routes) if hasattr(router, 'routes') else 0
-        logger.debug(f"{function_name}: TOSCA router '{tosca_type}' contains {router_routes} routes")
-
-        # Include the TOSCA router in the FastAPI application
-        fastapi_app.include_router(router)
-
-        logger.debug(f"{function_name}: TOSCA router '{tosca_type.upper()}' registered successfully")
-
-    logger.info(f"All {len(tosca_routers)} TOSCA routers registered successfully")
+    logger.info(f"All {len(TOSCA_ROUTERS)} TOSCA routers registered successfully")
 
 
 # Global application instance creation for ASGI server deployment
