@@ -519,3 +519,44 @@ def test_no_policies_means_no_policies_key(policy_profile):
 def test_any_metadata_binding_populates_that_key(policy_profile):
     doc = policy_doc(policy_profile, {"name": "app", "author": "you"})
     assert doc["metadata"] == {"name": "app", "author": "you"}
+
+
+def test_count_comes_from_the_instance_row(tmp_path):
+    """count belongs to the requirement, so it is per microservice."""
+    document = dict(FILTER_PROFILE)
+    document["metadata"] = {"gui_bindings": {"application": {
+        "node_template.name": "service.name",
+        "node_filter": {
+            "gui_name": "constraint",
+            "requirement": "host",
+            "target_type": "Host",
+            "count": "service.instances",
+        },
+    }}}
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    payload = {
+        "service": [{"id": 1, "name": "web", "image": "nginx", "instances": "3"}],
+        "constraint": [{"service_id": 1, "target": "host.num-cpus",
+                        "operator": "$equal", "value": 2}],
+    }
+    doc, _ = assemble(load_profile(tmp_path), "Service", payload, bindings_group="application")
+    host = templates(doc)["web"]["requirements"][0]["host"]
+    assert host["count"] == 3
+    assert "$and" in host["node_filter"]
+
+
+def test_count_alone_still_produces_a_requirement(tmp_path):
+    document = dict(FILTER_PROFILE)
+    document["metadata"] = {"gui_bindings": {"application": {
+        "node_template.name": "service.name",
+        "node_filter": {
+            "gui_name": "constraint",
+            "requirement": "host",
+            "target_type": "Host",
+            "count": "service.instances",
+        },
+    }}}
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    payload = {"service": [{"id": 1, "name": "web", "image": "nginx", "instances": 1}]}
+    doc, _ = assemble(load_profile(tmp_path), "Service", payload, bindings_group="application")
+    assert templates(doc)["web"]["requirements"] == [{"host": {"count": 1}}]

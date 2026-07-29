@@ -12,7 +12,7 @@ Supported forms:
 """
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Mapping, Tuple
 
 from .resolver import DEFAULT_BINDING_GROUP, Profile, ResolvedType
 
@@ -77,6 +77,9 @@ class NodeFilterBinding:
     operator_column: str = "operator"
     value_column: str = "value"
     value_max_column: str = "value_max"
+    # How many hosts the requirement asks for. It belongs to the requirement
+    # rather than to any one clause, so it comes from the instance row.
+    count_source: Tuple[str, str | None] | None = None
 
 
 @dataclass
@@ -265,6 +268,7 @@ def node_filter_binding(
         raise ValueError(f"'node_filter' binding is missing: {', '.join(missing)}")
 
     columns = declared.get("columns") or {}
+    count = declared.get("count")
     return NodeFilterBinding(
         table=parse_gui_name(declared["gui_name"])[0],
         requirement=declared["requirement"],
@@ -273,7 +277,14 @@ def node_filter_binding(
         operator_column=columns.get("operator", "operator"),
         value_column=columns.get("value", "value"),
         value_max_column=columns.get("value_max", "value_max"),
+        count_source=parse_gui_name(count)[:2] if count else None,
     )
+
+
+def operators_for(definition: Mapping[str, Any]) -> List[str]:
+    """Which filter operators make sense for a property's declared type."""
+    declared = (definition or {}).get("type")
+    return [name for name, types in FILTER_OPERATORS.items() if declared in types]
 
 
 def policy_bindings(profile: Profile, group: str | None = None) -> List[PolicyBinding]:

@@ -458,12 +458,15 @@ def _add_node_filter(
         if clause is not None:
             clauses.append(clause)
 
-    if not clauses:
-        return
+    requirement: Dict[str, Any] = {}
+    count = instance_row.get(filter_binding.count_source[1]) if filter_binding.count_source else None
+    if count is not None:
+        requirement["count"] = _coerce(count, {"type": "integer"})
+    if clauses:
+        requirement["node_filter"] = {"$and": clauses}
 
-    node.setdefault("requirements", []).append({
-        filter_binding.requirement: {"node_filter": {"$and": clauses}}
-    })
+    if requirement:
+        node.setdefault("requirements", []).append({filter_binding.requirement: requirement})
 
 
 def _filter_clause(
