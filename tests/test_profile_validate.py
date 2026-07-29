@@ -367,3 +367,41 @@ def test_value_of_the_wrong_type_is_reported(filter_profile):
         {"target": "host.num-cpus", "operator": "$equal", "value": "lots"},
     ])
     assert [e.kind for e in errors] == ["type"]
+
+
+def test_policy_property_not_on_the_type_is_unbindable(tmp_path):
+    """A bound property the policy type does not declare can never be satisfied."""
+    document = {
+        "profile": "test:1.0",
+        "metadata": {"gui_bindings": {"application": {
+            "node_template.name": "service.name",
+            "policies": {"energy": {"type": "Budget",
+                                    "properties": {"nonsense": "app.x"}}},
+        }}},
+        "policy_types": {"Budget": {"properties": {"target": {"type": "integer"}}}},
+        "node_types": {"Service": {"properties": {}}},
+    }
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    errors = validate(load_profile(tmp_path), "Service",
+                      {"service": [{"name": "web"}]}, bindings_group="application")
+    unbindable = [e for e in errors if e.kind == "unbindable"]
+    assert unbindable and "nonsense" in unbindable[0].message
+
+
+def test_policy_value_of_the_wrong_type_is_reported(tmp_path):
+    document = {
+        "profile": "test:1.0",
+        "metadata": {"gui_bindings": {"application": {
+            "node_template.name": "service.name",
+            "policies": {"energy": {"type": "Budget",
+                                    "properties": {"target": "app.energy_target"}}},
+        }}},
+        "policy_types": {"Budget": {"properties": {"target": {"type": "integer"}}}},
+        "node_types": {"Service": {"properties": {}}},
+    }
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    errors = validate(load_profile(tmp_path), "Service",
+                      {"app": {"energy_target": "loads"}, "service": [{"name": "web"}]},
+                      bindings_group="application")
+    assert [e.kind for e in errors] == ["type"]
+    assert errors[0].path == "app.energy_target"

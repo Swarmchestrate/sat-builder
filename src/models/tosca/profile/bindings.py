@@ -46,6 +46,21 @@ GUI_NAME_RE = re.compile(
 
 
 @dataclass
+class PolicyBinding:
+    """One policy of the generated document, and where its properties come from.
+
+    The name is the key the policy appears under; the type is the policy type it
+    instantiates. Application policies target the application as a whole, so
+    nothing here resolves targets.
+    """
+
+    name: str
+    type_name: str
+    # Property name -> (table, column).
+    properties: Dict[str, Tuple[str, str | None]] = field(default_factory=dict)
+
+
+@dataclass
 class NodeFilterBinding:
     """Rows that become clauses of a requirement's node_filter.
 
@@ -259,6 +274,28 @@ def node_filter_binding(
         value_column=columns.get("value", "value"),
         value_max_column=columns.get("value_max", "value_max"),
     )
+
+
+def policy_bindings(profile: Profile, group: str | None = None) -> List[PolicyBinding]:
+    """The policies a document may carry, in the order the profile declares them."""
+    declared = binding_group(profile, group).get("policies")
+    if not declared:
+        return []
+    if not isinstance(declared, dict):
+        raise ValueError(f"'policies' must be a mapping of name to policy, got {declared!r}")
+
+    bindings: List[PolicyBinding] = []
+    for name, policy in declared.items():
+        policy = policy or {}
+        type_name = policy.get("type")
+        if not type_name:
+            raise ValueError(f"Policy '{name}' declares no type")
+        properties = {
+            prop: parse_gui_name(reference)[:2]
+            for prop, reference in (policy.get("properties") or {}).items()
+        }
+        bindings.append(PolicyBinding(name=name, type_name=type_name, properties=properties))
+    return bindings
 
 
 def filterable_targets(profile: Profile, type_name: str) -> Dict[str, Dict[str, Any]]:

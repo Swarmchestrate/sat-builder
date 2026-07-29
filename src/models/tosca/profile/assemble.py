@@ -24,6 +24,7 @@ from .bindings import (
     filterable_targets,
     free_property_binding,
     node_filter_binding,
+    policy_bindings,
 )
 from .resolver import Profile, ResolvedType
 
@@ -131,8 +132,14 @@ def assemble(
     document: Dict[str, Any] = {"tosca_definitions_version": definitions_version}
 
     resolved_metadata = dict(metadata or {})
-    if document_name:
-        resolved_metadata["name"] = document_name
+    # Any metadata.<key> binding populates that key, so author, version and the
+    # rest need no special case here - only a binding in the profile.
+    for target, source in documents.items():
+        if not target.startswith("metadata."):
+            continue
+        value = _document_value(source, payload)
+        if value not in (None, ""):
+            resolved_metadata[target[len("metadata."):]] = value
     if resolved_metadata:
         document["metadata"] = resolved_metadata
 
@@ -143,7 +150,11 @@ def assemble(
     if imports:
         document["imports"] = imports
 
-    document["service_template"] = {"node_templates": node_templates}
+    service_template: Dict[str, Any] = {"node_templates": node_templates}
+    policies = _build_policies(profile, payload, bindings_group, namespace)
+    if policies:
+        service_template["policies"] = policies
+    document["service_template"] = service_template
 
     warnings.extend(_unclaimed(payload, claimed, documents, profile))
     return document, warnings
@@ -373,6 +384,39 @@ def _add_free_properties(
             })
             continue
         _set_path(node, ("properties", str(name)), _coerce(value, definition))
+
+
+def _build_policies(
+        profile: Profile,
+        payload: Mapping[str, Any],
+        bindings_group: str | None,
+        namespace: str,
+) -> List[Dict[str, Any]]:
+    """Build the document's policies from the profile's declarations.
+
+    A policy is emitted only when the payload gives at least one of its
+    properties a value, so an application that sets no budgets carries no
+    policies rather than empty ones.
+    """
+    policies: List[Dict[str, Any]] = []
+
+    for binding in policy_bindings(profile, bindings_group):
+        declared = profile.resolve(binding.type_name, "policy_types").properties
+        properties: Dict[str, Any] = {}
+
+        for prop, source in binding.properties.items():
+            value = _document_value(source, payload)
+            if value is None or value == "":
+                continue
+            properties[prop] = _coerce(value, declared.get(prop) or {})
+
+        if properties:
+            policies.append({binding.name: {
+                "type": f"{namespace}:{binding.type_name}",
+                "properties": properties,
+            }})
+
+    return policies
 
 
 def _add_node_filter(

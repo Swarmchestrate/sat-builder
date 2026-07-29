@@ -27,6 +27,7 @@ from .bindings import (
     filterable_targets,
     free_property_binding,
     node_filter_binding,
+    policy_bindings,
 )
 from .resolver import Profile, ResolvedType
 
@@ -70,6 +71,8 @@ def validate(
     instance_rows = _as_rows(payload.get(instance_table))
     errors: List[ValidationError] = []
 
+    errors.extend(_check_policies(profile, payload, bindings_group))
+
     _, name_column = documents.get("node_template.name", (None, None))
     errors.extend(_duplicate_names(instance_rows, instance_table, name_column))
 
@@ -106,6 +109,59 @@ def validate(
         )
 
     return errors
+
+
+def _check_policies(
+        profile: Profile,
+        payload: Mapping[str, Any],
+        bindings_group: str | None,
+) -> List[ValidationError]:
+    """Check the document's policies against the types they instantiate.
+
+    A property the policy type does not declare can never be satisfied, so it is
+    reported against the profile rather than the payload.
+    """
+    errors: List[ValidationError] = []
+
+    for binding in policy_bindings(profile, bindings_group):
+        try:
+            declared = profile.resolve(binding.type_name, "policy_types").properties
+        except KeyError:
+            errors.append(ValidationError(
+                path=f"policies.{binding.name}",
+                message=f"'{binding.type_name}' is not a policy type in the profile",
+                kind="unbindable",
+            ))
+            continue
+
+        for prop, source in binding.properties.items():
+            if prop not in declared:
+                errors.append(ValidationError(
+                    path=f"policies.{binding.name}.{prop}",
+                    message=f"'{prop}' is not a property of {binding.type_name}",
+                    kind="unbindable",
+                ))
+                continue
+
+            value = _document_value_for(source, payload)
+            if value in (None, ""):
+                continue
+            problem = _type_problem(value, declared[prop])
+            if problem:
+                table, column = source
+                errors.append(ValidationError(
+                    path=f"{table}.{column}",
+                    message=f"'{binding.name}' policy: '{prop}' {problem}",
+                    kind="type",
+                ))
+
+    return errors
+
+
+def _document_value_for(source, payload: Mapping[str, Any]) -> Any:
+    table, column = source
+    rows = _as_rows(payload.get(table))
+    return rows[0].get(column) if rows and column else None
 
 
 def _check_node_filters(

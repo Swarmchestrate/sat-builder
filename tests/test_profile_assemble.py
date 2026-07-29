@@ -439,3 +439,83 @@ def test_constraint_table_is_not_reported_as_unclaimed(filter_profile):
         {"service_id": 1, "target": "host.num-cpus", "operator": "$equal", "value": 2},
     ])
     assert not any("constraint" in w.get("payload", "") for w in warnings)
+
+
+# Application-wide policies, declared by the profile and filled from the payload.
+
+POLICY_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {
+        "gui_bindings": {
+            "application": {
+                "metadata.name": "app.name",
+                "metadata.author": "app.author",
+                "node_template.name": "service.name",
+                "policies": {
+                    "energy": {
+                        "type": "EnergyBudget",
+                        "properties": {
+                            "priority": "app.energy_priority",
+                            "target": "app.energy_target",
+                        },
+                    },
+                    "cost": {
+                        "type": "CostBudget",
+                        "properties": {"target": "app.cost_target"},
+                    },
+                },
+            }
+        }
+    },
+    "policy_types": {
+        "QoS": {"properties": {"priority": {"type": "float"}, "target": {"type": "integer"}}},
+        "EnergyBudget": {"derived_from": "QoS"},
+        "CostBudget": {"derived_from": "QoS"},
+    },
+    "node_types": {
+        "Service": {"properties": {"image": {"type": "string",
+                                             "metadata": {"gui_name": "service.image"}}}}
+    },
+}
+
+
+@pytest.fixture
+def policy_profile(tmp_path):
+    # sort_keys=False so the fixture keeps the declared policy order, which is
+    # the order the document is expected to carry.
+    (tmp_path / "types.yaml").write_text(
+        yaml.safe_dump(POLICY_PROFILE, sort_keys=False), encoding="utf-8"
+    )
+    return load_profile(tmp_path)
+
+
+def policy_doc(profile, app):
+    payload = {"app": app, "service": [{"id": 1, "name": "web", "image": "nginx"}]}
+    doc, _ = assemble(profile, "Service", payload, bindings_group="application")
+    return doc
+
+
+def test_policies_are_built_from_the_payload(policy_profile):
+    doc = policy_doc(policy_profile, {
+        "name": "app", "energy_priority": "0.5", "energy_target": "40", "cost_target": 2,
+    })
+    assert doc["service_template"]["policies"] == [
+        {"energy": {"type": "swch:EnergyBudget",
+                    "properties": {"priority": 0.5, "target": 40}}},
+        {"cost": {"type": "swch:CostBudget", "properties": {"target": 2}}},
+    ]
+
+
+def test_a_policy_with_no_values_is_not_emitted(policy_profile):
+    doc = policy_doc(policy_profile, {"name": "app", "energy_target": 40})
+    assert [next(iter(p)) for p in doc["service_template"]["policies"]] == ["energy"]
+
+
+def test_no_policies_means_no_policies_key(policy_profile):
+    doc = policy_doc(policy_profile, {"name": "app"})
+    assert "policies" not in doc["service_template"]
+
+
+def test_any_metadata_binding_populates_that_key(policy_profile):
+    doc = policy_doc(policy_profile, {"name": "app", "author": "you"})
+    assert doc["metadata"] == {"name": "app", "author": "you"}
