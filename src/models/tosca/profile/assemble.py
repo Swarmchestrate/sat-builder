@@ -23,6 +23,7 @@ from .bindings import (
     document_bindings,
     filterable_targets,
     free_property_binding,
+    grouped_policy_bindings,
     node_filter_binding,
     policy_bindings,
 )
@@ -110,6 +111,8 @@ def assemble(
         bindings = collect_bindings(resolved, profile)
         for table, columns in _claimed_columns(bindings, free_binding, filter_binding).items():
             claimed.setdefault(table, set()).update(columns)
+        for policy in grouped_policy_bindings(profile, bindings_group):
+            claimed.setdefault(policy.table, set()).add(policy.link_column)
 
         if any(binding.table == instance_table for binding in bindings):
             per_row_types.append(type_name)
@@ -152,6 +155,10 @@ def assemble(
 
     service_template: Dict[str, Any] = {"node_templates": node_templates}
     policies = _build_policies(profile, payload, bindings_group, namespace)
+    policies.extend(_build_grouped_policies(
+        profile, payload, bindings_group, namespace,
+        instance_table, name_column, instance_rows, warnings,
+    ))
     if policies:
         service_template["policies"] = policies
     document["service_template"] = service_template
@@ -417,6 +424,85 @@ def _build_policies(
             }})
 
     return policies
+
+
+def _build_grouped_policies(
+        profile: Profile,
+        payload: Mapping[str, Any],
+        bindings_group: str | None,
+        namespace: str,
+        instance_table: str,
+        name_column: str | None,
+        instance_rows: Sequence[Mapping[str, Any]],
+        warnings: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    """Collapse linking rows into one policy per connected group."""
+    policies: List[Dict[str, Any]] = []
+    if not name_column:
+        return policies
+
+    # Node template names in the order the payload gives them, so a group reads
+    # in the order its members were created rather than alphabetically.
+    order = {row.get(name_column): index for index, row in enumerate(instance_rows)}
+    by_id = {
+        str(row.get("id")): row.get(name_column)
+        for row in instance_rows
+        if row.get("id") is not None
+    }
+    foreign_key = f"{instance_table}_id"
+
+    for binding in grouped_policy_bindings(profile, bindings_group):
+        links = []
+        for row in _as_rows(payload.get(binding.table)):
+            owner = by_id.get(str(row.get(foreign_key)))
+            other = row.get(binding.link_column)
+            if not owner or not other:
+                continue
+            if other not in order:
+                warnings.append({
+                    "policies": f"'{binding.name}' names '{other}', which is not a "
+                                f"node template, and was skipped"
+                })
+                continue
+            links.append((owner, other))
+
+        for members in _connected_groups(links):
+            members = sorted(members, key=lambda name: order.get(name, 0))
+            policies.append({
+                f"{'_'.join(members)}_{binding.name}": {
+                    "type": f"{namespace}:{binding.type_name}",
+                    "targets": members,
+                }
+            })
+
+    return policies
+
+
+def _connected_groups(links: Sequence[Tuple[str, str]]) -> List[List[str]]:
+    """Group names that reach each other through the links given."""
+    group_of: Dict[str, int] = {}
+    groups: Dict[int, List[str]] = {}
+    next_id = 0
+
+    for left, right in links:
+        left_group, right_group = group_of.get(left), group_of.get(right)
+        if left_group is None and right_group is None:
+            group_of[left] = group_of[right] = next_id
+            groups[next_id] = [left, right] if left != right else [left]
+            next_id += 1
+        elif left_group is None:
+            group_of[left] = right_group
+            groups[right_group].append(left)
+        elif right_group is None:
+            group_of[right] = left_group
+            groups[left_group].append(right)
+        elif left_group != right_group:
+            # The link joins two groups that were separate until now.
+            for name in groups[right_group]:
+                group_of[name] = left_group
+            groups[left_group].extend(groups.pop(right_group))
+
+    return [members for members in groups.values() if len(members) > 1]
 
 
 def _blank_as_none(value: Any) -> Any:

@@ -26,6 +26,7 @@ from .bindings import (
     document_bindings,
     filterable_targets,
     free_property_binding,
+    grouped_policy_bindings,
     node_filter_binding,
     policy_bindings,
 )
@@ -61,7 +62,7 @@ def validate(
     documents = document_bindings(profile, bindings_group)
     free_binding = free_property_binding(profile, bindings_group)
     filter_binding = node_filter_binding(profile, bindings_group)
-    instance_table, _ = documents.get("node_template.name", (None, None))
+    instance_table, name_column = documents.get("node_template.name", (None, None))
     if not instance_table:
         raise ValueError(
             "Profile is missing a 'node_template.name' gui_binding; "
@@ -72,8 +73,10 @@ def validate(
     errors: List[ValidationError] = []
 
     errors.extend(_check_policies(profile, payload, bindings_group))
+    errors.extend(
+        _check_grouped_policies(profile, payload, bindings_group, instance_table, name_column)
+    )
 
-    _, name_column = documents.get("node_template.name", (None, None))
     errors.extend(_duplicate_names(instance_rows, instance_table, name_column))
 
     for type_name in requested:
@@ -153,6 +156,49 @@ def _check_policies(
                     path=f"{table}.{column}",
                     message=f"'{binding.name}' policy: '{prop}' {problem}",
                     kind="type",
+                ))
+
+    return errors
+
+
+def _check_grouped_policies(
+        profile: Profile,
+        payload: Mapping[str, Any],
+        bindings_group: str | None,
+        instance_table: str,
+        name_column: str | None,
+) -> List[ValidationError]:
+    """Check that a link names a node template that exists.
+
+    A link to nothing would quietly leave a member out of the group, which is
+    the opposite of what asking for two things to be placed together means.
+    """
+    if not name_column:
+        return []
+
+    known = {row.get(name_column) for row in _as_rows(payload.get(instance_table))}
+    errors: List[ValidationError] = []
+
+    for binding in grouped_policy_bindings(profile, bindings_group):
+        try:
+            profile.resolve(binding.type_name, "policy_types")
+        except KeyError:
+            errors.append(ValidationError(
+                path=f"policies.{binding.name}",
+                message=f"'{binding.type_name}' is not a policy type in the profile",
+                kind="unbindable",
+            ))
+            continue
+
+        for index, row in enumerate(_as_rows(payload.get(binding.table))):
+            target = row.get(binding.link_column)
+            if target in (None, ""):
+                continue
+            if target not in known:
+                errors.append(ValidationError(
+                    path=f"{binding.table}[{index}].{binding.link_column}",
+                    message=f"'{target}' is not one of this application's microservices",
+                    kind="unknown_target",
                 ))
 
     return errors

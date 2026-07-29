@@ -61,6 +61,21 @@ class PolicyBinding:
 
 
 @dataclass
+class GroupedPolicyBinding:
+    """Rows that link node templates, collapsed into one policy per group.
+
+    Colocation is mutual and carries: naming b from a, and c from b, puts all
+    three together. So the rows are read as links and each connected group
+    becomes a single policy over its members, rather than one policy per row.
+    """
+
+    name: str
+    type_name: str
+    table: str
+    link_column: str
+
+
+@dataclass
 class NodeFilterBinding:
     """Rows that become clauses of a requirement's node_filter.
 
@@ -306,6 +321,34 @@ def policy_bindings(profile: Profile, group: str | None = None) -> List[PolicyBi
             for prop, reference in (policy.get("properties") or {}).items()
         }
         bindings.append(PolicyBinding(name=name, type_name=type_name, properties=properties))
+    return bindings
+
+
+def grouped_policy_bindings(
+        profile: Profile,
+        group: str | None = None,
+) -> List[GroupedPolicyBinding]:
+    """Policies built by grouping rows that link node templates."""
+    declared = binding_group(profile, group).get("grouped_policies")
+    if not declared:
+        return []
+    if not isinstance(declared, dict):
+        raise ValueError(
+            f"'grouped_policies' must be a mapping of name to policy, got {declared!r}"
+        )
+
+    bindings: List[GroupedPolicyBinding] = []
+    for name, policy in declared.items():
+        policy = policy or {}
+        missing = [k for k in ("type", "gui_name", "links") if not policy.get(k)]
+        if missing:
+            raise ValueError(f"Grouped policy '{name}' is missing: {', '.join(missing)}")
+        bindings.append(GroupedPolicyBinding(
+            name=name,
+            type_name=policy["type"],
+            table=parse_gui_name(policy["gui_name"])[0],
+            link_column=policy["links"],
+        ))
     return bindings
 
 

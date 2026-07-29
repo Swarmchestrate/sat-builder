@@ -414,3 +414,26 @@ def test_blank_upper_bound_reads_as_missing_not_as_a_bad_value(filter_profile):
     ])
     assert [e.kind for e in errors] == ["missing"]
     assert "upper bound" in errors[0].message
+
+
+def test_colocation_naming_an_unknown_microservice_is_reported(tmp_path):
+    """A link to nothing would silently drop a member from the group."""
+    document = {
+        "profile": "test:1.0",
+        "metadata": {"gui_bindings": {"application": {
+            "node_template.name": "service.name",
+            "grouped_policies": {
+                "colocation": {"type": "Colocation", "gui_name": "coloc", "links": "target"}
+            },
+        }}},
+        "policy_types": {"Colocation": {}},
+        "node_types": {"Service": {"properties": {}}},
+    }
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+    payload = {
+        "service": [{"id": 1, "name": "web"}, {"id": 2, "name": "worker"}],
+        "coloc": [{"service_id": 1, "target": "worker"}, {"service_id": 1, "target": "ghost"}],
+    }
+    errors = validate(load_profile(tmp_path), "Service", payload, bindings_group="application")
+    assert [e.kind for e in errors] == ["unknown_target"]
+    assert errors[0].path == "coloc[1].target"

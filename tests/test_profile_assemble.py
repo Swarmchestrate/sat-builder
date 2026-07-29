@@ -560,3 +560,106 @@ def test_count_alone_still_produces_a_requirement(tmp_path):
     payload = {"service": [{"id": 1, "name": "web", "image": "nginx", "instances": 1}]}
     doc, _ = assemble(load_profile(tmp_path), "Service", payload, bindings_group="application")
     assert templates(doc)["web"]["requirements"] == [{"host": {"count": 1}}]
+
+
+# Grouped policies: rows link node templates, and each connected group becomes
+# one policy rather than one policy per row.
+
+GROUPED_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {
+        "gui_bindings": {
+            "application": {
+                "node_template.name": "service.name",
+                "grouped_policies": {
+                    "colocation": {
+                        "type": "Colocation",
+                        "gui_name": "coloc",
+                        "links": "target",
+                    }
+                },
+            }
+        }
+    },
+    "policy_types": {"Colocation": {}},
+    "node_types": {
+        "Service": {"properties": {"image": {"type": "string",
+                                             "metadata": {"gui_name": "service.image"}}}}
+    },
+}
+
+GROUPED_SERVICES = [
+    {"id": 1, "name": "web", "image": "x"},
+    {"id": 2, "name": "worker", "image": "x"},
+    {"id": 3, "name": "cache", "image": "x"},
+    {"id": 4, "name": "api", "image": "x"},
+    {"id": 5, "name": "db", "image": "x"},
+]
+
+
+@pytest.fixture
+def grouped_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(GROUPED_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def grouped_policies(profile, coloc_rows):
+    payload = {"service": GROUPED_SERVICES, "coloc": coloc_rows}
+    doc, warnings = assemble(profile, "Service", payload, bindings_group="application")
+    return doc["service_template"].get("policies", []), warnings
+
+
+def test_linked_rows_merge_into_one_policy(grouped_profile):
+    """web-worker and worker-cache is one group of three, not two pairs."""
+    policies, _ = grouped_policies(grouped_profile, [
+        {"service_id": 1, "target": "worker"},
+        {"service_id": 2, "target": "cache"},
+    ])
+    assert policies == [{
+        "web_worker_cache_colocation": {
+            "type": "swch:Colocation",
+            "targets": ["web", "worker", "cache"],
+        }
+    }]
+
+
+def test_separate_groups_become_separate_policies(grouped_profile):
+    policies, _ = grouped_policies(grouped_profile, [
+        {"service_id": 1, "target": "worker"},
+        {"service_id": 4, "target": "db"},
+    ])
+    assert [next(iter(p)) for p in policies] == [
+        "web_worker_colocation", "api_db_colocation",
+    ]
+
+
+def test_a_link_joining_two_existing_groups_merges_them(grouped_profile):
+    policies, _ = grouped_policies(grouped_profile, [
+        {"service_id": 1, "target": "worker"},
+        {"service_id": 3, "target": "api"},
+        # This one bridges the two groups above.
+        {"service_id": 2, "target": "cache"},
+    ])
+    assert len(policies) == 1
+    assert policies[0]["web_worker_cache_api_colocation"]["targets"] == [
+        "web", "worker", "cache", "api",
+    ]
+
+
+def test_members_are_ordered_as_the_payload_gives_them(grouped_profile):
+    """Creation order reads better than alphabetical, and is deterministic."""
+    policies, _ = grouped_policies(grouped_profile, [{"service_id": 3, "target": "web"}])
+    assert policies[0]["web_cache_colocation"]["targets"] == ["web", "cache"]
+
+
+def test_no_links_means_no_policies(grouped_profile):
+    policies, _ = grouped_policies(grouped_profile, [])
+    assert policies == []
+
+
+def test_link_to_an_unknown_name_is_reported_and_skipped(grouped_profile):
+    policies, warnings = grouped_policies(grouped_profile, [
+        {"service_id": 1, "target": "ghost"},
+    ])
+    assert policies == []
+    assert any("ghost" in w.get("policies", "") for w in warnings)
