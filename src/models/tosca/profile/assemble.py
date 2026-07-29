@@ -15,10 +15,15 @@ from src.utils.logger import get_logger, log_function_calls
 
 from .bindings import (
     Binding,
+    ENTRY_OPERATOR,
     KeyValueBinding,
+    NodeFilterBinding,
+    RANGE_OPERATOR,
     collect_bindings,
     document_bindings,
+    filterable_targets,
     free_property_binding,
+    node_filter_binding,
 )
 from .resolver import Profile, ResolvedType
 
@@ -34,6 +39,15 @@ _COERCIONS = {
 
 _TRUTHY = {"true", "t", "yes", "y", "1"}
 _FALSEY = {"false", "f", "no", "n", "0"}
+
+
+class InlineList(list):
+    """A list that reads better on one line.
+
+    A property lookup path and a range are single values written as sequences,
+    so expanding them over five lines each buries the filter they belong to.
+    Rendering honours this; JSON is unaffected, as it is still a list.
+    """
 
 
 @log_function_calls()
@@ -73,6 +87,7 @@ def assemble(
     requested = [type_names] if isinstance(type_names, str) else list(type_names)
     documents = document_bindings(profile, bindings_group)
     free_binding = free_property_binding(profile, bindings_group)
+    filter_binding = node_filter_binding(profile, bindings_group)
     warnings: List[Dict[str, str]] = []
 
     instance_table, name_column = documents.get("node_template.name", (None, None))
@@ -92,7 +107,7 @@ def assemble(
     for type_name in requested:
         resolved = profile.resolve(type_name)
         bindings = collect_bindings(resolved, profile)
-        for table, columns in _claimed_columns(bindings, free_binding).items():
+        for table, columns in _claimed_columns(bindings, free_binding, filter_binding).items():
             claimed.setdefault(table, set()).update(columns)
 
         if any(binding.table == instance_table for binding in bindings):
@@ -100,7 +115,7 @@ def assemble(
             _add_per_row(
                 node_templates, warnings, bindings, payload, instance_rows,
                 instance_table, name_column, type_name, namespace,
-                resolved, free_binding,
+                resolved, free_binding, filter_binding, profile,
             )
         else:
             _add_singleton(
@@ -146,6 +161,8 @@ def _add_per_row(
         namespace: str,
         resolved: ResolvedType | None = None,
         free_binding: KeyValueBinding | None = None,
+        filter_binding: NodeFilterBinding | None = None,
+        profile: Profile | None = None,
 ) -> None:
     """One node template per row of the instance table."""
     for index, row in enumerate(instance_rows):
@@ -164,6 +181,9 @@ def _add_per_row(
         )
         _add_free_properties(
             node, warnings, free_binding, payload, row, instance_table, resolved
+        )
+        _add_node_filter(
+            node, warnings, filter_binding, payload, row, instance_table, profile
         )
         node_templates[str(name)] = node
 
@@ -355,6 +375,105 @@ def _add_free_properties(
         _set_path(node, ("properties", str(name)), _coerce(value, definition))
 
 
+def _add_node_filter(
+        node: Dict[str, Any],
+        warnings: List[Dict[str, str]],
+        filter_binding: NodeFilterBinding | None,
+        payload: Mapping[str, Any],
+        instance_row: Mapping[str, Any],
+        instance_table: str,
+        profile: Profile | None,
+) -> None:
+    """Attach placement constraints to the node template's requirement.
+
+    Each row becomes one clause. Clauses are joined with $and, which is what
+    matching a candidate against every constraint at once means.
+    """
+    if not filter_binding or not profile:
+        return
+
+    targets = filterable_targets(profile, filter_binding.target_type)
+    rows = _scoped_rows(
+        filter_binding.table, {}, payload, instance_row, instance_table
+    )
+
+    clauses = []
+    for row in rows:
+        target = row.get(filter_binding.target_column)
+        operator = row.get(filter_binding.operator_column)
+        definition = targets.get(str(target)) if target else None
+        if not target or not operator or definition is None:
+            # Validation reports these; assembly leaves them out rather than
+            # emitting a filter no capacity could ever satisfy.
+            warnings.append({
+                "node_filter": f"Constraint on '{target}' was not applied"
+            })
+            continue
+
+        clause = _filter_clause(filter_binding, row, target, operator, definition)
+        if clause is not None:
+            clauses.append(clause)
+
+    if not clauses:
+        return
+
+    node.setdefault("requirements", []).append({
+        filter_binding.requirement: {"node_filter": {"$and": clauses}}
+    })
+
+
+def _filter_clause(
+        filter_binding: NodeFilterBinding,
+        row: Mapping[str, Any],
+        target: str,
+        operator: str,
+        definition: Mapping[str, Any],
+) -> Dict[str, Any] | None:
+    """One node_filter clause: operator, the target's value, and the bound(s)."""
+    capability, _, prop = str(target).partition(".")
+    # SELF is the node being filtered, so the path names the candidate's own
+    # capability and property.
+    lookup = {"$get_property": InlineList(["SELF", "TARGET", "CAPABILITY", capability, prop])}
+
+    if operator == ENTRY_OPERATOR:
+        entries = entry_values(row.get(filter_binding.value_column), definition)
+        return {operator: [lookup, InlineList(entries)]} if entries else None
+
+    value = _coerce(row.get(filter_binding.value_column), definition)
+    if value is None:
+        return None
+
+    if operator == RANGE_OPERATOR:
+        upper = _coerce(row.get(filter_binding.value_max_column), definition)
+        if upper is None:
+            return None
+        return {operator: [lookup, InlineList([value, upper])]}
+
+    return {operator: [lookup, value]}
+
+
+def entry_values(value: Any, definition: Mapping[str, Any]) -> List[Any]:
+    """Split a $has_any_entry value into the entries to look for.
+
+    One row can name several, comma-separated, because asking whether a list
+    contains any of ALL or 80 is one constraint rather than two.
+    """
+    if value is None:
+        return []
+    items = value if isinstance(value, list) else str(value).split(",")
+    entry_type = (definition or {}).get("entry_schema")
+    if isinstance(entry_type, dict):
+        entry_type = entry_type.get("type")
+    schema = {"type": entry_type} if isinstance(entry_type, str) else {}
+
+    entries = []
+    for item in items:
+        item = item.strip() if isinstance(item, str) else item
+        if item not in (None, ""):
+            entries.append(_coerce(item, schema))
+    return entries
+
+
 def _document_value(source: Tuple[str, str | None] | None, payload: Mapping[str, Any]) -> Any:
     """Resolve a document-level binding, e.g. metadata.name."""
     if not source:
@@ -420,6 +539,7 @@ def _as_rows(value: Any) -> List[Mapping[str, Any]]:
 def _claimed_columns(
         bindings: Sequence[Binding],
         free_binding: KeyValueBinding | None = None,
+        filter_binding: NodeFilterBinding | None = None,
 ) -> Dict[str, set]:
     """Every column a set of bindings reads, including entries and filters."""
     claimed: Dict[str, set] = {}
@@ -437,6 +557,14 @@ def _claimed_columns(
         columns = claimed.setdefault(free_binding.table, set())
         columns.update({free_binding.key_column, free_binding.value_column})
         columns.update(free_binding.filters)
+
+    if filter_binding:
+        claimed.setdefault(filter_binding.table, set()).update({
+            filter_binding.target_column,
+            filter_binding.operator_column,
+            filter_binding.value_column,
+            filter_binding.value_max_column,
+        })
 
     return claimed
 

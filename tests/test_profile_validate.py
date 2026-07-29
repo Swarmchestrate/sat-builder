@@ -253,3 +253,117 @@ def test_distinct_node_template_names_pass(free_profile):
         ]
     }
     assert validate(free_profile, "Service", payload, bindings_group="application") == []
+
+
+# Placement constraints: every capability of the target type is filterable, so
+# what a filter names and how it compares are what need checking.
+
+FILTER_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {
+        "gui_bindings": {
+            "application": {
+                "node_template.name": "service.name",
+                "node_filter": {
+                    "gui_name": "constraint",
+                    "requirement": "host",
+                    "target_type": "Host",
+                },
+            }
+        }
+    },
+    "capability_types": {
+        "HostCap": {"properties": {"num-cpus": {"type": "integer"}}},
+        "ResourceCap": {"properties": {"provider": {"type": "string"}}},
+        "NetworkCap": {"properties": {"tcp-allow": {"type": "list"}}},
+    },
+    "node_types": {
+        "Host": {
+            "capabilities": {
+                "host": {"type": "HostCap"},
+                "resource": {"type": "ResourceCap"},
+                "network": {"type": "NetworkCap"},
+            }
+        },
+        "Service": {
+            "properties": {"image": {"type": "string", "metadata": {"gui_name": "service.image"}}}
+        },
+    },
+}
+
+
+@pytest.fixture
+def filter_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(FILTER_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def constraint_payload(rows):
+    return {"service": [{"id": 1, "name": "web", "image": "nginx"}], "constraint": rows}
+
+
+def check(profile, rows):
+    return validate(profile, "Service", constraint_payload(rows), bindings_group="application")
+
+
+def test_valid_constraints_pass(filter_profile):
+    errors = check(filter_profile, [
+        {"application_microservice_id": 1, "target": "host.num-cpus",
+         "operator": "$in_range", "value": 1, "value_max": 4},
+        {"application_microservice_id": 1, "target": "resource.provider",
+         "operator": "$equal", "value": "aws"},
+        {"application_microservice_id": 1, "target": "network.tcp-allow",
+         "operator": "$has_any_entry", "value": "ALL"},
+    ])
+    assert errors == []
+
+
+def test_unknown_filter_target_is_reported(filter_profile):
+    errors = check(filter_profile, [
+        {"target": "host.gpus", "operator": "$greater_or_equal", "value": 1},
+    ])
+    assert [e.kind for e in errors] == ["unknown_property"]
+    assert "host.gpus" in errors[0].message
+
+
+def test_unknown_operator_is_reported(filter_profile):
+    errors = check(filter_profile, [
+        {"target": "host.num-cpus", "operator": "$roughly", "value": 1},
+    ])
+    assert [e.kind for e in errors] == ["operator"]
+
+
+def test_operator_illegal_for_the_property_type_is_reported(filter_profile):
+    """A range over a string would match nothing."""
+    errors = check(filter_profile, [
+        {"target": "resource.provider", "operator": "$in_range", "value": "a", "value_max": "z"},
+    ])
+    assert [e.kind for e in errors] == ["operator"]
+    assert "declares as string" in errors[0].message
+
+
+def test_range_without_an_upper_bound_is_reported(filter_profile):
+    errors = check(filter_profile, [
+        {"target": "host.num-cpus", "operator": "$in_range", "value": 1},
+    ])
+    assert [e.kind for e in errors] == ["missing"]
+    assert "upper bound" in errors[0].message
+
+
+def test_inverted_range_is_reported(filter_profile):
+    errors = check(filter_profile, [
+        {"target": "host.num-cpus", "operator": "$in_range", "value": 8, "value_max": 2},
+    ])
+    assert [e.kind for e in errors] == ["range"]
+
+
+def test_constraint_without_a_value_is_reported(filter_profile):
+    errors = check(filter_profile, [{"target": "host.num-cpus", "operator": "$equal"}])
+    assert [e.kind for e in errors] == ["missing"]
+
+
+def test_value_of_the_wrong_type_is_reported(filter_profile):
+    errors = check(filter_profile, [
+        {"target": "host.num-cpus", "operator": "$equal", "value": "lots"},
+    ])
+    assert [e.kind for e in errors] == ["type"]

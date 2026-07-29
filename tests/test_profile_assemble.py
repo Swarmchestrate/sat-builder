@@ -339,3 +339,103 @@ def test_list_column_on_the_instance_table_is_per_row(tmp_path):
     nodes = templates(doc)
     assert nodes["web"]["properties"]["command"] == ["nginx"]
     assert "command" not in nodes["worker"].get("properties", {})
+
+
+# Placement constraints become clauses of a requirement's node_filter.
+
+FILTER_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {
+        "gui_bindings": {
+            "application": {
+                "node_template.name": "service.name",
+                "node_filter": {
+                    "gui_name": "constraint",
+                    "requirement": "host",
+                    "target_type": "Host",
+                },
+            }
+        }
+    },
+    "capability_types": {
+        "HostCap": {"properties": {"num-cpus": {"type": "integer"}}},
+        "NetworkCap": {
+            "properties": {"tcp-allow": {"type": "list", "entry_schema": "string"}}
+        },
+    },
+    "node_types": {
+        "Host": {"capabilities": {"host": {"type": "HostCap"},
+                                  "network": {"type": "NetworkCap"}}},
+        "Service": {"properties": {"image": {"type": "string",
+                                             "metadata": {"gui_name": "service.image"}}}},
+    },
+}
+
+
+@pytest.fixture
+def filter_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(FILTER_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def build_with(profile, rows):
+    payload = {
+        "service": [
+            {"id": 1, "name": "web", "image": "nginx"},
+            {"id": 2, "name": "worker", "image": "busybox"},
+        ],
+        "constraint": rows,
+    }
+    doc, warnings = assemble(profile, "Service", payload, bindings_group="application")
+    return templates(doc), warnings
+
+
+def test_constraints_become_a_node_filter(filter_profile):
+    nodes, _ = build_with(filter_profile, [
+        {"service_id": 1, "target": "host.num-cpus", "operator": "$greater_or_equal", "value": 2},
+    ])
+    assert nodes["web"]["requirements"] == [{
+        "host": {"node_filter": {"$and": [
+            {"$greater_or_equal": [
+                {"$get_property": ["SELF", "TARGET", "CAPABILITY", "host", "num-cpus"]}, 2,
+            ]}
+        ]}}
+    }]
+
+
+def test_constraints_are_scoped_to_their_own_microservice(filter_profile):
+    nodes, _ = build_with(filter_profile, [
+        {"service_id": 1, "target": "host.num-cpus", "operator": "$greater_or_equal", "value": 2},
+    ])
+    assert "requirements" not in nodes["worker"]
+
+
+def test_range_emits_both_bounds(filter_profile):
+    nodes, _ = build_with(filter_profile, [
+        {"service_id": 1, "target": "host.num-cpus", "operator": "$in_range",
+         "value": "1", "value_max": "4"},
+    ])
+    clause = nodes["web"]["requirements"][0]["host"]["node_filter"]["$and"][0]
+    # Coerced to the property's declared type, not left as text.
+    assert clause["$in_range"][1] == [1, 4]
+
+
+def test_has_any_entry_takes_a_list_of_entries(filter_profile):
+    nodes, _ = build_with(filter_profile, [
+        {"service_id": 1, "target": "network.tcp-allow",
+         "operator": "$has_any_entry", "value": "ALL, 80"},
+    ])
+    clause = nodes["web"]["requirements"][0]["host"]["node_filter"]["$and"][0]
+    assert clause["$has_any_entry"][1] == ["ALL", "80"]
+
+
+def test_no_constraints_means_no_requirements_block(filter_profile):
+    nodes, _ = build_with(filter_profile, [])
+    assert "requirements" not in nodes["web"]
+
+
+def test_constraint_table_is_not_reported_as_unclaimed(filter_profile):
+    _, warnings = build_with(filter_profile, [
+        {"service_id": 1, "target": "host.num-cpus", "operator": "$equal", "value": 2},
+    ])
+    assert not any("constraint" in w.get("payload", "") for w in warnings)

@@ -16,12 +16,52 @@ from typing import Any, Dict, List, Tuple
 
 from .resolver import DEFAULT_BINDING_GROUP, Profile, ResolvedType
 
+# Which operators a filter may use, and the property types each one makes sense
+# for. A range on a string, or an ordering on a boolean, is a mistake worth
+# reporting rather than emitting.
+FILTER_OPERATORS: Dict[str, Tuple[str, ...]] = {
+    "$greater_or_equal": ("integer", "float"),
+    "$greater_than": ("integer", "float"),
+    "$less_or_equal": ("integer", "float"),
+    "$less_than": ("integer", "float"),
+    "$in_range": ("integer", "float"),
+    "$equal": ("integer", "float", "string", "boolean"),
+    "$has_any_entry": ("list",),
+}
+
+# The only operator that reads a second value.
+RANGE_OPERATOR = "$in_range"
+
+# Asks whether a list property contains any of the given entries, so its value
+# is one or more entries rather than a list to compare against. Several are
+# written comma-separated, as BookInfo's [ ALL, 80 ].
+ENTRY_OPERATOR = "$has_any_entry"
+
 GUI_NAME_RE = re.compile(
     r"^(?P<table>\w+)"
     r"(?:\[(?P<filters>[^\]]+)\])?"
     r"(?:\{(?P<pairs>[^}]+)\})?"
     r"(?:\.(?P<column>\w+))?$"
 )
+
+
+@dataclass
+class NodeFilterBinding:
+    """Rows that become clauses of a requirement's node_filter.
+
+    A filter is not a value placed at a path but a predicate: the row names a
+    capability property of the target type, an operator, and one or two values.
+    Every capability of target_type is filterable, so nothing has to be
+    enumerated - adding a capability property makes it filterable at once.
+    """
+
+    table: str
+    requirement: str
+    target_type: str
+    target_column: str = "target"
+    operator_column: str = "operator"
+    value_column: str = "value"
+    value_max_column: str = "value_max"
 
 
 @dataclass
@@ -182,11 +222,57 @@ def document_bindings(
     """
     parsed: Dict[str, Tuple[str, str | None]] = {}
     for target, reference in binding_group(profile, group).items():
-        if _is_key_value(reference):
+        # Structured bindings (node_filter) and key/value ones name no single
+        # column, so they are read by their own helpers instead.
+        if not isinstance(reference, str) or _is_key_value(reference):
             continue
         table, column, _ = parse_gui_name(reference)
         parsed[target] = (table, column)
     return parsed
+
+
+def node_filter_binding(
+        profile: Profile,
+        group: str | None = None,
+) -> NodeFilterBinding | None:
+    """The binding that turns rows into a requirement's node_filter."""
+    declared = binding_group(profile, group).get("node_filter")
+    if not declared:
+        return None
+    if not isinstance(declared, dict):
+        raise ValueError(
+            "'node_filter' must be a mapping declaring gui_name, requirement "
+            f"and target_type, got {declared!r}"
+        )
+
+    missing = [k for k in ("gui_name", "requirement", "target_type") if not declared.get(k)]
+    if missing:
+        raise ValueError(f"'node_filter' binding is missing: {', '.join(missing)}")
+
+    columns = declared.get("columns") or {}
+    return NodeFilterBinding(
+        table=parse_gui_name(declared["gui_name"])[0],
+        requirement=declared["requirement"],
+        target_type=declared["target_type"],
+        target_column=columns.get("target", "target"),
+        operator_column=columns.get("operator", "operator"),
+        value_column=columns.get("value", "value"),
+        value_max_column=columns.get("value_max", "value_max"),
+    )
+
+
+def filterable_targets(profile: Profile, type_name: str) -> Dict[str, Dict[str, Any]]:
+    """Every capability property of a type, keyed 'capability.property'.
+
+    This is the whole filterable surface: any capability a capacity declares can
+    be constrained, so the set is derived rather than annotated.
+    """
+    resolved = profile.resolve(type_name)
+    return {
+        f"{cap_name}.{prop_name}": definition
+        for cap_name, capability in (resolved.capabilities or {}).items()
+        for prop_name, definition in (capability.get("properties") or {}).items()
+    }
 
 
 def free_property_binding(

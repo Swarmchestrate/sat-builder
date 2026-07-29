@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from src.models.app import get_router_config, get_validation_config
 from src.models.settings import get_profile_settings
 from src.models.tosca.profile import assemble, get_profile, payload_schema, validate
+from src.models.tosca.profile.assemble import InlineList
 from src.models.tosca.puccini import validate_document
 from src.utils.logger import get_logger, log_api_calls
 
@@ -173,6 +174,14 @@ def _payload_schema(bindings_group: str) -> Dict[str, Any]:
     except Exception as error:  # noqa: BLE001 - documentation must not stop startup
         logger.warning(f"_payload_schema: could not derive request schema ({error})")
         return {"type": "object", "description": "Database rows keyed by table name"}
+
+
+yaml.SafeDumper.add_representer(
+    InlineList,
+    lambda dumper, data: dumper.represent_sequence(
+        "tag:yaml.org,2002:seq", data, flow_style=True
+    ),
+)
 
 
 def _to_yaml(document: Dict[str, Any]) -> str:

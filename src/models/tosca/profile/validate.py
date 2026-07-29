@@ -14,13 +14,19 @@ from typing import Any, Dict, List, Mapping, Sequence
 
 from src.utils.logger import get_logger, log_function_calls
 
-from .assemble import resolve_value, _as_rows, _scoped_rows
+from .assemble import entry_values, resolve_value, _as_rows, _scoped_rows
 from .bindings import (
     Binding,
+    ENTRY_OPERATOR,
+    FILTER_OPERATORS,
     KeyValueBinding,
+    NodeFilterBinding,
+    RANGE_OPERATOR,
     collect_bindings,
     document_bindings,
+    filterable_targets,
     free_property_binding,
+    node_filter_binding,
 )
 from .resolver import Profile, ResolvedType
 
@@ -53,6 +59,7 @@ def validate(
     requested = [type_names] if isinstance(type_names, str) else list(type_names)
     documents = document_bindings(profile, bindings_group)
     free_binding = free_property_binding(profile, bindings_group)
+    filter_binding = node_filter_binding(profile, bindings_group)
     instance_table, _ = documents.get("node_template.name", (None, None))
     if not instance_table:
         raise ValueError(
@@ -92,6 +99,140 @@ def validate(
                 free_binding, resolved, payload, instance_rows, instance_table
             )
         )
+        errors.extend(
+            _check_node_filters(
+                filter_binding, profile, payload, instance_rows, instance_table
+            )
+        )
+
+    return errors
+
+
+def _check_node_filters(
+        filter_binding: NodeFilterBinding | None,
+        profile: Profile,
+        payload: Mapping[str, Any],
+        instance_rows: Sequence[Mapping[str, Any]],
+        instance_table: str,
+) -> List[ValidationError]:
+    """Check placement constraints against the capabilities they target.
+
+    A constraint naming a property no capacity has, or comparing a string with
+    a range, would produce a filter that silently matches nothing.
+    """
+    if not filter_binding:
+        return []
+
+    targets = filterable_targets(profile, filter_binding.target_type)
+    errors: List[ValidationError] = []
+
+    for index, instance_row in enumerate(instance_rows or [{}]):
+        rows = _scoped_rows(filter_binding.table, {}, payload, instance_row, instance_table)
+        for row in rows:
+            target = row.get(filter_binding.target_column)
+            operator = row.get(filter_binding.operator_column)
+            path = f"{filter_binding.table}[{index}]"
+
+            definition = targets.get(str(target)) if target else None
+            if definition is None:
+                known = ", ".join(sorted(targets)[:6])
+                errors.append(ValidationError(
+                    path=f"{path}.{filter_binding.target_column}",
+                    message=f"'{target}' is not a capability property of "
+                            f"{filter_binding.target_type} (e.g. {known})",
+                    kind="unknown_property",
+                ))
+                continue
+
+            allowed = FILTER_OPERATORS.get(str(operator))
+            if allowed is None:
+                errors.append(ValidationError(
+                    path=f"{path}.{filter_binding.operator_column}",
+                    message=f"'{operator}' is not a filter operator; expected one of "
+                            f"{', '.join(sorted(FILTER_OPERATORS))}",
+                    kind="operator",
+                ))
+                continue
+
+            declared = (definition or {}).get("type")
+            if declared not in allowed:
+                errors.append(ValidationError(
+                    path=f"{path}.{filter_binding.operator_column}",
+                    message=f"'{operator}' cannot apply to '{target}', which the profile "
+                            f"declares as {declared}",
+                    kind="operator",
+                ))
+                continue
+
+            errors.extend(_check_filter_values(filter_binding, row, target, operator, definition, path))
+
+    return errors
+
+
+def _check_filter_values(
+        filter_binding: NodeFilterBinding,
+        row: Mapping[str, Any],
+        target: Any,
+        operator: Any,
+        definition: Mapping[str, Any],
+        path: str,
+) -> List[ValidationError]:
+    """A constraint needs its value, and a range needs both ends."""
+    errors: List[ValidationError] = []
+    value = row.get(filter_binding.value_column)
+
+    if value is None:
+        return [ValidationError(
+            path=f"{path}.{filter_binding.value_column}",
+            message=f"the constraint on '{target}' has no value",
+            kind="missing",
+        )]
+
+    if operator == ENTRY_OPERATOR:
+        # The value names entries to look for, so it is checked against the
+        # list's entry type rather than against the list itself.
+        entries = entry_values(value, definition)
+        if not entries:
+            errors.append(ValidationError(
+                path=f"{path}.{filter_binding.value_column}",
+                message=f"the constraint on '{target}' names no entries to look for",
+                kind="missing",
+            ))
+        return errors
+
+    problem = _type_problem(value, definition)
+    if problem:
+        errors.append(ValidationError(
+            path=f"{path}.{filter_binding.value_column}",
+            message=f"'{target}' {problem}",
+            kind="type",
+        ))
+
+    if operator != RANGE_OPERATOR:
+        return errors
+
+    upper = row.get(filter_binding.value_max_column)
+    if upper is None:
+        errors.append(ValidationError(
+            path=f"{path}.{filter_binding.value_max_column}",
+            message=f"{RANGE_OPERATOR} on '{target}' needs an upper bound as well",
+            kind="missing",
+        ))
+        return errors
+
+    problem = _type_problem(upper, definition)
+    if problem:
+        errors.append(ValidationError(
+            path=f"{path}.{filter_binding.value_max_column}",
+            message=f"'{target}' upper bound {problem}",
+            kind="type",
+        ))
+    elif not problem and float(upper) < float(value):
+        errors.append(ValidationError(
+            path=f"{path}.{filter_binding.value_max_column}",
+            message=f"the range on '{target}' is inverted: {value} to {upper}",
+            kind="range",
+        ))
 
     return errors
 
