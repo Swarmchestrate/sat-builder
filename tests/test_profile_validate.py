@@ -405,3 +405,12 @@ def test_policy_value_of_the_wrong_type_is_reported(tmp_path):
                       bindings_group="application")
     assert [e.kind for e in errors] == ["type"]
     assert errors[0].path == "app.energy_target"
+
+
+def test_blank_upper_bound_reads_as_missing_not_as_a_bad_value(filter_profile):
+    """A form posts an untouched field as '', which means absent."""
+    errors = check(filter_profile, [
+        {"target": "host.num-cpus", "operator": "$in_range", "value": 1, "value_max": ""},
+    ])
+    assert [e.kind for e in errors] == ["missing"]
+    assert "upper bound" in errors[0].message

@@ -419,6 +419,11 @@ def _build_policies(
     return policies
 
 
+def _blank_as_none(value: Any) -> Any:
+    """An untouched form field arrives as an empty string, meaning absent."""
+    return None if value == "" else value
+
+
 def _add_node_filter(
         node: Dict[str, Any],
         warnings: List[Dict[str, str]],
@@ -486,12 +491,12 @@ def _filter_clause(
         entries = entry_values(row.get(filter_binding.value_column), definition)
         return {operator: [lookup, InlineList(entries)]} if entries else None
 
-    value = _coerce(row.get(filter_binding.value_column), definition)
+    value = _coerce(_blank_as_none(row.get(filter_binding.value_column)), definition)
     if value is None:
         return None
 
     if operator == RANGE_OPERATOR:
-        upper = _coerce(row.get(filter_binding.value_max_column), definition)
+        upper = _coerce(_blank_as_none(row.get(filter_binding.value_max_column)), definition)
         if upper is None:
             return None
         return {operator: [lookup, InlineList([value, upper])]}

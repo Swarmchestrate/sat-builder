@@ -235,7 +235,11 @@ def _check_filter_values(
 ) -> List[ValidationError]:
     """A constraint needs its value, and a range needs both ends."""
     errors: List[ValidationError] = []
+    # A form posts an untouched field as an empty string, which means absent
+    # rather than a value that happens to be blank.
     value = row.get(filter_binding.value_column)
+    if value == "":
+        value = None
 
     if value is None:
         return [ValidationError(
@@ -268,6 +272,8 @@ def _check_filter_values(
         return errors
 
     upper = row.get(filter_binding.value_max_column)
+    if upper == "":
+        upper = None
     if upper is None:
         errors.append(ValidationError(
             path=f"{path}.{filter_binding.value_max_column}",
