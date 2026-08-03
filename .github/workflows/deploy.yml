@@ -50,20 +50,31 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           PRO_SUDO: ${{ secrets.PRO_SUDO }}
+          DEPLOY_SHA: ${{ github.sha }}
         with:
           host: ${{ secrets.PRO_SERVER }}
           username: ${{ secrets.PRO_USER }}
           key: ${{ secrets.PRO_KEY }}
-          envs: PRO_SUDO
+          envs: PRO_SUDO,DEPLOY_SHA
           script: |
             set -e
-            cd /opt/sat-builder
 
             if [ "${PRO_SUDO}" = "true" ] || [ "${PRO_SUDO}" = "1" ]; then
               SUDO="sudo -n"
             else
               SUDO=""
             fi
+
+            DEPLOY_DIR=/opt/sat-builder
+            mkdir -p "$DEPLOY_DIR"
+            TMP_COMPOSE="$(mktemp)"
+            trap 'rm -f "$TMP_COMPOSE"' EXIT
+            curl -fsSL \
+              "https://raw.githubusercontent.com/Swarmchestrate/sat-builder/${DEPLOY_SHA}/docker-compose.yaml" \
+              -o "$TMP_COMPOSE"
+            $SUDO install -m 644 "$TMP_COMPOSE" "$DEPLOY_DIR/docker-compose.yaml"
+
+            cd "$DEPLOY_DIR"
 
             $SUDO docker compose pull
             $SUDO docker compose up -d --remove-orphans
