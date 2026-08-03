@@ -19,11 +19,6 @@ services:
     # Fixed container name for easier local/deployment management
     container_name: sat-builder
 
-    # Expose the API port
-    # Host port can be overridden with API_PORT, defaults to 8000
-    ports:
-      - "${API_PORT:-8000}:8000"
-
     # Persist application logs on the host machine
     # Container workdir is /sat-builder
     volumes:
