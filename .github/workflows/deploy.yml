@@ -46,16 +46,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout deployment files
+        uses: actions/checkout@v4
+
+      - name: Encode Compose file
+        id: compose
+        shell: bash
+        run: printf 'content=%s\n' "$(base64 -w0 docker-compose.yaml)" >> "$GITHUB_OUTPUT"
+
       - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3
         env:
           PRO_SUDO: ${{ secrets.PRO_SUDO }}
           DEPLOY_SHA: ${{ github.sha }}
+          COMPOSE_B64: ${{ steps.compose.outputs.content }}
         with:
           host: ${{ secrets.PRO_SERVER }}
           username: ${{ secrets.PRO_USER }}
           key: ${{ secrets.PRO_KEY }}
-          envs: PRO_SUDO,DEPLOY_SHA
+          envs: PRO_SUDO,DEPLOY_SHA,COMPOSE_B64
           script: |
             set -e
 
@@ -67,12 +76,7 @@ jobs:
 
             DEPLOY_DIR=/opt/sat-builder
             mkdir -p "$DEPLOY_DIR"
-            TMP_COMPOSE="$(mktemp)"
-            trap 'rm -f "$TMP_COMPOSE"' EXIT
-            curl -fsSL \
-              "https://raw.githubusercontent.com/Swarmchestrate/sat-builder/${DEPLOY_SHA}/docker-compose.yaml" \
-              -o "$TMP_COMPOSE"
-            $SUDO install -m 644 "$TMP_COMPOSE" "$DEPLOY_DIR/docker-compose.yaml"
+            printf '%s' "$COMPOSE_B64" | base64 -d | $SUDO tee "$DEPLOY_DIR/docker-compose.yaml" >/dev/null
 
             cd "$DEPLOY_DIR"
 
