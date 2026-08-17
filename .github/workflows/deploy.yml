@@ -80,11 +80,15 @@ jobs:
 
             cd "$DEPLOY_DIR"
 
-            export SAT_BUILDER_VERSION="$DEPLOY_SHA"
-            $SUDO docker compose pull
-            $SUDO docker compose up -d --remove-orphans --wait
+            if [ -n "$SUDO" ]; then
+              compose() { sudo -n env SAT_BUILDER_VERSION="$DEPLOY_SHA" docker compose "$@"; }
+            else
+              compose() { SAT_BUILDER_VERSION="$DEPLOY_SHA" docker compose "$@"; }
+            fi
+            compose pull
+            compose up -d --remove-orphans --wait
 
-            IMAGE_REPO="$($SUDO docker compose config --images | head -n 1)"
+            IMAGE_REPO="$(compose config --images | head -n 1)"
             IMAGE_REPO="${IMAGE_REPO%:*}"
             KEEP_IMAGES=5
             $SUDO docker image rm "$IMAGE_REPO:latest" >/dev/null 2>&1 || true
