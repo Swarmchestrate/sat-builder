@@ -76,6 +76,18 @@ jobs:
 
             cd "$DEPLOY_DIR"
 
+            export SAT_BUILDER_VERSION="$DEPLOY_SHA"
             $SUDO docker compose pull
-            $SUDO docker compose up -d --remove-orphans
+            $SUDO docker compose up -d --remove-orphans --wait
+
+            IMAGE_REPO="$($SUDO docker compose config --images | head -n 1)"
+            IMAGE_REPO="${IMAGE_REPO%:*}"
+            KEEP_IMAGES=5
+            $SUDO docker image rm "$IMAGE_REPO:latest" >/dev/null 2>&1 || true
+            $SUDO docker image ls "$IMAGE_REPO" \
+              --format '{{.ID}}\t{{.CreatedAt}}\t{{.Tag}}' | \
+              awk -F '\t' '$3 != "latest"' | \
+              sort -k2,3r | tail -n +$((KEEP_IMAGES + 1)) | \
+              cut -f1 | sort -u | \
+              xargs -r -n1 $SUDO docker image rm || true
             $SUDO docker ps --filter "name=sat-builder"
