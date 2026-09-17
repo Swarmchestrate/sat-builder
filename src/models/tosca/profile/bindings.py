@@ -76,6 +76,25 @@ class GroupedPolicyBinding:
 
 
 @dataclass
+class RowPolicyBinding:
+    """One policy per row of a table, each naming itself and its targets.
+
+    A reconfiguration rule is written once and may govern several microservices
+    together, so it cannot come from the microservice's own row or be inferred
+    from links. Each row is a whole policy: its name, its properties from its
+    columns, and the node templates it targets from a list column.
+    """
+
+    kind: str
+    type_name: str
+    table: str
+    name_column: str
+    targets_column: str
+    # Property name -> column on the same table.
+    properties: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class NodeFilterBinding:
     """Rows that become clauses of a requirement's node_filter.
 
@@ -348,6 +367,34 @@ def grouped_policy_bindings(
             type_name=policy["type"],
             table=parse_gui_name(policy["gui_name"])[0],
             link_column=policy["links"],
+        ))
+    return bindings
+
+
+def row_policy_bindings(
+        profile: Profile,
+        group: str | None = None,
+) -> List[RowPolicyBinding]:
+    """Policies built one per row, with their own names and targets."""
+    declared = binding_group(profile, group).get("row_policies")
+    if not declared:
+        return []
+    if not isinstance(declared, dict):
+        raise ValueError(f"'row_policies' must be a mapping of kind to policy, got {declared!r}")
+
+    bindings: List[RowPolicyBinding] = []
+    for kind, policy in declared.items():
+        policy = policy or {}
+        missing = [k for k in ("type", "gui_name", "name", "targets") if not policy.get(k)]
+        if missing:
+            raise ValueError(f"Row policy '{kind}' is missing: {', '.join(missing)}")
+        bindings.append(RowPolicyBinding(
+            kind=kind,
+            type_name=policy["type"],
+            table=parse_gui_name(policy["gui_name"])[0],
+            name_column=policy["name"],
+            targets_column=policy["targets"],
+            properties=dict(policy.get("properties") or {}),
         ))
     return bindings
 

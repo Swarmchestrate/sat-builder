@@ -663,3 +663,75 @@ def test_link_to_an_unknown_name_is_reported_and_skipped(grouped_profile):
     ])
     assert policies == []
     assert any("ghost" in w.get("policies", "") for w in warnings)
+
+
+ROW_POLICY_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {"gui_bindings": {"application": {
+        "node_template.name": "service.name",
+        "row_policies": {"reconfiguration": {
+            "type": "Reconfiguration", "gui_name": "reconf", "name": "name",
+            "targets": "targets", "properties": {"rule": "rule", "constants": "constants"},
+        }},
+    }}},
+    "policy_types": {"Reconfiguration": {"properties": {
+        "constants": {"type": "map", "entry_schema": "string"},
+        "rule": {"type": "string", "required": True},
+    }}},
+    "node_types": {"Service": {"properties": {"image": {"type": "string",
+                                                        "metadata": {"gui_name": "service.image"}}}}},
+}
+
+
+@pytest.fixture
+def row_policy_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(ROW_POLICY_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def row_policies(profile, rows):
+    payload = {"service": [{"id": 1, "name": "web", "image": "x"}, {"id": 2, "name": "worker", "image": "x"}],
+               "reconf": rows}
+    doc, warnings = assemble(profile, "Service", payload, bindings_group="application")
+    return doc["service_template"].get("policies", []), warnings
+
+
+def test_each_row_becomes_one_policy_with_its_own_targets(row_policy_profile):
+    policies, warnings = row_policies(row_policy_profile, [
+        {"name": "frontend", "rule": "r1", "constants": {"t": "80.0"}, "targets": ["web", "worker"]},
+        {"name": "backend", "rule": "r2", "constants": {}, "targets": ["worker"]},
+    ])
+    assert policies == [
+        {"frontend": {"type": "swch:Reconfiguration",
+                      "properties": {"rule": "r1", "constants": {"t": "80.0"}},
+                      "targets": ["web", "worker"]}},
+        # An empty map is left out rather than emitted as {}.
+        {"backend": {"type": "swch:Reconfiguration", "properties": {"rule": "r2"},
+                     "targets": ["worker"]}},
+    ]
+    assert not any("reconf" in w.get("payload", "") for w in warnings)
+
+
+def test_row_policy_target_naming_nothing_is_left_out(row_policy_profile):
+    policies, warnings = row_policies(row_policy_profile, [
+        {"name": "p", "rule": "r", "targets": ["web", "ghost"]},
+    ])
+    assert policies[0]["p"]["targets"] == ["web"]
+    assert any("ghost" in w.get("policies", "") for w in warnings)
+
+
+def test_multi_line_values_render_as_literal_blocks():
+    """A reconfiguration rule should read as written, not as a quoted string."""
+    from src.api.routers.build_router import _to_yaml
+
+    rule = "% inputs\nint: n;\n\nsolve minimize loss;\n"
+    rendered = _to_yaml({"rule": rule})
+    assert rendered.startswith("rule: |")
+    assert yaml.safe_load(rendered)["rule"] == rule
+
+
+def test_blank_entry_property_is_left_out(profile):
+    """An optional field a form left untouched arrives as '' and means absent."""
+    payload = {**PAYLOAD, "rule": [{"direction": "in", "port_from": "", "port_to": 22}]}
+    doc, _ = assemble(profile, "Thing", payload)
+    assert templates(doc)["big"]["properties"]["ingress"] == [{"to": 22}]

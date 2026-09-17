@@ -184,6 +184,18 @@ yaml.SafeDumper.add_representer(
 )
 
 
+def _represent_str(dumper: yaml.SafeDumper, data: str) -> yaml.ScalarNode:
+    # A multi-line value such as a reconfiguration rule is written as a literal
+    # block, the way a person would, instead of a quoted string with every line
+    # break doubled. PyYAML falls back to quoting when a block cannot represent
+    # the text exactly, so the value is never altered.
+    style = "|" if "\n" in data else None
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data, style=style)
+
+
+yaml.SafeDumper.add_representer(str, _represent_str)
+
+
 def _to_yaml(document: Dict[str, Any]) -> str:
     # sort_keys=False keeps TOSCA's conventional ordering rather than alphabetising.
     return yaml.safe_dump(document, sort_keys=False, default_flow_style=False, allow_unicode=True)

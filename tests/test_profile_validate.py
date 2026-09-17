@@ -437,3 +437,71 @@ def test_colocation_naming_an_unknown_microservice_is_reported(tmp_path):
     errors = validate(load_profile(tmp_path), "Service", payload, bindings_group="application")
     assert [e.kind for e in errors] == ["unknown_target"]
     assert errors[0].path == "coloc[1].target"
+
+
+# Row policies: each row is a whole policy with its own name, properties and
+# targets, as a reconfiguration rule governing several microservices is.
+
+ROW_POLICY_PROFILE = {
+    "profile": "test:1.0",
+    "metadata": {"gui_bindings": {"application": {
+        "node_template.name": "service.name",
+        "row_policies": {"reconfiguration": {
+            "type": "Reconfiguration", "gui_name": "reconf", "name": "name",
+            "targets": "targets", "properties": {"rule": "rule", "constants": "constants"},
+        }},
+    }}},
+    "policy_types": {"Reconfiguration": {"properties": {
+        "constants": {"type": "map", "entry_schema": "string"},
+        "rule": {"type": "string", "required": True},
+    }}},
+    "node_types": {"Service": {"properties": {}}},
+}
+
+SERVICES = [{"id": 1, "name": "web"}, {"id": 2, "name": "worker"}]
+
+
+@pytest.fixture
+def row_policy_profile(tmp_path):
+    (tmp_path / "types.yaml").write_text(yaml.safe_dump(ROW_POLICY_PROFILE), encoding="utf-8")
+    return load_profile(tmp_path)
+
+
+def policy_errors(profile, rows):
+    payload = {"service": SERVICES, "reconf": rows}
+    return validate(profile, "Service", payload, bindings_group="application")
+
+
+def good_policy(**overrides):
+    return {"name": "scale", "rule": "solve minimize loss;", "constants": {"t": "80.0"},
+            "targets": ["web", "worker"], **overrides}
+
+
+def test_complete_row_policy_passes(row_policy_profile):
+    assert policy_errors(row_policy_profile, [good_policy()]) == []
+
+
+def test_row_policy_without_its_required_rule_is_reported(row_policy_profile):
+    errors = policy_errors(row_policy_profile, [good_policy(rule="")])
+    assert [(e.kind, e.path) for e in errors] == [("missing", "reconf[0].rule")]
+
+
+def test_row_policy_without_targets_is_reported(row_policy_profile):
+    errors = policy_errors(row_policy_profile, [good_policy(targets=[])])
+    assert [(e.kind, e.path) for e in errors] == [("missing", "reconf[0].targets")]
+
+
+def test_row_policy_targeting_an_unknown_microservice_is_reported(row_policy_profile):
+    errors = policy_errors(row_policy_profile, [good_policy(targets=["web", "ghost"])])
+    assert [e.kind for e in errors] == ["unknown_target"]
+    assert "ghost" in errors[0].message
+
+
+def test_two_row_policies_with_one_name_are_reported(row_policy_profile):
+    errors = policy_errors(row_policy_profile, [good_policy(), good_policy()])
+    assert [(e.kind, e.path) for e in errors] == [("duplicate", "reconf[1].name")]
+
+
+def test_row_policy_property_of_the_wrong_type_is_reported(row_policy_profile):
+    errors = policy_errors(row_policy_profile, [good_policy(constants="t=80")])
+    assert [(e.kind, e.path) for e in errors] == [("type", "reconf[0].constants")]

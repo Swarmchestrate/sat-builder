@@ -29,6 +29,7 @@ from .bindings import (
     grouped_policy_bindings,
     node_filter_binding,
     policy_bindings,
+    row_policy_bindings,
 )
 from .resolver import Profile, ResolvedType
 
@@ -75,6 +76,9 @@ def validate(
     errors.extend(_check_policies(profile, payload, bindings_group))
     errors.extend(
         _check_grouped_policies(profile, payload, bindings_group, instance_table, name_column)
+    )
+    errors.extend(
+        _check_row_policies(profile, payload, bindings_group, instance_table, name_column)
     )
 
     errors.extend(_duplicate_names(instance_rows, instance_table, name_column))
@@ -200,6 +204,107 @@ def _check_grouped_policies(
                     message=f"'{target}' is not one of this application's microservices",
                     kind="unknown_target",
                 ))
+
+    return errors
+
+
+def _check_row_policies(
+        profile: Profile,
+        payload: Mapping[str, Any],
+        bindings_group: str | None,
+        instance_table: str,
+        name_column: str | None,
+) -> List[ValidationError]:
+    """Check each row policy is complete, correctly typed and aimed at something.
+
+    A reconfiguration without a rule does nothing, one without targets applies to
+    nothing, and one aimed at a microservice that does not exist is a policy the
+    orchestrator can never apply - so each is refused rather than emitted.
+    """
+    known = (
+        {row.get(name_column) for row in _as_rows(payload.get(instance_table))}
+        if name_column else set()
+    )
+    errors: List[ValidationError] = []
+
+    for binding in row_policy_bindings(profile, bindings_group):
+        try:
+            declared = profile.resolve(binding.type_name, "policy_types").properties
+        except KeyError:
+            errors.append(ValidationError(
+                path=f"policies.{binding.kind}",
+                message=f"'{binding.type_name}' is not a policy type in the profile",
+                kind="unbindable",
+            ))
+            continue
+
+        unbound = [prop for prop in binding.properties if prop not in declared]
+        for prop in unbound:
+            errors.append(ValidationError(
+                path=f"policies.{binding.kind}.{prop}",
+                message=f"'{prop}' is not a property of {binding.type_name}",
+                kind="unbindable",
+            ))
+
+        seen: Dict[str, int] = {}
+        for index, row in enumerate(_as_rows(payload.get(binding.table))):
+            where = f"{binding.table}[{index}]"
+            name = row.get(binding.name_column)
+            if name in (None, ""):
+                errors.append(ValidationError(
+                    path=f"{where}.{binding.name_column}",
+                    message=f"a {binding.kind} policy has no name",
+                    kind="missing",
+                ))
+            elif name in seen:
+                errors.append(ValidationError(
+                    path=f"{where}.{binding.name_column}",
+                    message=f"'{name}' is already used by policy {seen[name] + 1}",
+                    kind="duplicate",
+                ))
+            else:
+                seen[str(name)] = index
+
+            label = f"'{name}'" if name else f"{binding.kind} policy {index + 1}"
+            for prop, definition in declared.items():
+                column = binding.properties.get(prop)
+                value = row.get(column) if column else None
+                if value in (None, "", {}, []):
+                    if (definition or {}).get("required") and "default" not in (definition or {}):
+                        errors.append(ValidationError(
+                            path=f"{where}.{column or prop}",
+                            message=f"{label} needs a {prop}",
+                            kind="missing",
+                        ))
+                    continue
+                if prop in unbound:
+                    continue
+                problem = _type_problem(value, definition)
+                if problem:
+                    errors.append(ValidationError(
+                        path=f"{where}.{column}",
+                        message=f"{label}: '{prop}' {problem}",
+                        kind="type",
+                    ))
+
+            targets = row.get(binding.targets_column)
+            targets = [] if targets in (None, "") else (
+                list(targets) if isinstance(targets, (list, tuple)) else [targets]
+            )
+            if not targets:
+                errors.append(ValidationError(
+                    path=f"{where}.{binding.targets_column}",
+                    message=f"{label} does not target any microservice",
+                    kind="missing",
+                ))
+            for target in targets:
+                if target not in known:
+                    errors.append(ValidationError(
+                        path=f"{where}.{binding.targets_column}",
+                        message=f"{label} targets '{target}', which is not one of this "
+                                f"application's microservices",
+                        kind="unknown_target",
+                    ))
 
     return errors
 

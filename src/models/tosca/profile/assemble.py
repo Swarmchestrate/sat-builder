@@ -26,6 +26,7 @@ from .bindings import (
     grouped_policy_bindings,
     node_filter_binding,
     policy_bindings,
+    row_policy_bindings,
 )
 from .resolver import Profile, ResolvedType
 
@@ -113,6 +114,10 @@ def assemble(
             claimed.setdefault(table, set()).update(columns)
         for policy in grouped_policy_bindings(profile, bindings_group):
             claimed.setdefault(policy.table, set()).add(policy.link_column)
+        for policy in row_policy_bindings(profile, bindings_group):
+            claimed.setdefault(policy.table, set()).update(
+                {policy.name_column, policy.targets_column, *policy.properties.values()}
+            )
 
         if any(binding.table == instance_table for binding in bindings):
             per_row_types.append(type_name)
@@ -158,6 +163,9 @@ def assemble(
     policies.extend(_build_grouped_policies(
         profile, payload, bindings_group, namespace,
         instance_table, name_column, instance_rows, warnings,
+    ))
+    policies.extend(_build_row_policies(
+        profile, payload, bindings_group, namespace, name_column, instance_rows, warnings,
     ))
     if policies:
         service_template["policies"] = policies
@@ -321,7 +329,8 @@ def _list_value(
         entry = {
             path[0]: _coerce(row.get(entry_binding.column), entry_binding.definition)
             for entry_binding in binding.entry_bindings
-            if (path := entry_binding.path) and row.get(entry_binding.column) is not None
+            # A form leaves an untouched optional field as '', which means absent.
+            if (path := entry_binding.path) and row.get(entry_binding.column) not in (None, "")
         }
         if entry:
             entries.append(entry)
@@ -424,6 +433,65 @@ def _build_policies(
             }})
 
     return policies
+
+
+def _build_row_policies(
+        profile: Profile,
+        payload: Mapping[str, Any],
+        bindings_group: str | None,
+        namespace: str,
+        name_column: str | None,
+        instance_rows: Sequence[Mapping[str, Any]],
+        warnings: List[Dict[str, str]],
+) -> List[Dict[str, Any]]:
+    """One policy per row, carrying its own name, properties and targets.
+
+    Targets naming no node template are left out with a warning; validation
+    rejects them, so reaching here means validation was skipped.
+    """
+    policies: List[Dict[str, Any]] = []
+    known = {row.get(name_column) for row in instance_rows} if name_column else set()
+
+    for binding in row_policy_bindings(profile, bindings_group):
+        declared = profile.resolve(binding.type_name, "policy_types").properties
+
+        for row in _as_rows(payload.get(binding.table)):
+            name = row.get(binding.name_column)
+            if not name:
+                continue
+
+            properties: Dict[str, Any] = {}
+            for prop, column in binding.properties.items():
+                value = row.get(column)
+                if value in (None, "", {}, []):
+                    continue
+                properties[prop] = _coerce(value, declared.get(prop) or {})
+
+            targets = []
+            for target in _as_list(row.get(binding.targets_column)):
+                if target in known:
+                    targets.append(target)
+                else:
+                    warnings.append({
+                        "policies": f"'{name}' targets '{target}', which is not a node "
+                                    f"template, and it was left out"
+                    })
+
+            policy: Dict[str, Any] = {"type": f"{namespace}:{binding.type_name}"}
+            if properties:
+                policy["properties"] = properties
+            if targets:
+                policy["targets"] = targets
+            policies.append({str(name): policy})
+
+    return policies
+
+
+def _as_list(value: Any) -> List[Any]:
+    """A list column's value, tolerating a lone value or nothing at all."""
+    if value in (None, ""):
+        return []
+    return list(value) if isinstance(value, (list, tuple)) else [value]
 
 
 def _build_grouped_policies(
