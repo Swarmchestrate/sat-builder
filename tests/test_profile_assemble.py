@@ -735,3 +735,11 @@ def test_blank_entry_property_is_left_out(profile):
     payload = {**PAYLOAD, "rule": [{"direction": "in", "port_from": "", "port_to": 22}]}
     doc, _ = assemble(profile, "Thing", payload)
     assert templates(doc)["big"]["properties"]["ingress"] == [{"to": 22}]
+
+
+def test_blank_property_is_left_out(profile):
+    """A text field a form left untouched arrives as '', which means absent."""
+    payload = {**PAYLOAD, "place": {"city": ""}, "cap": {**PAYLOAD["cap"], "tags": ["a", ""]}}
+    doc, _ = assemble(profile, "Thing", payload)
+    assert "locality" not in templates(doc)["big"].get("capabilities", {})
+    assert templates(doc)["big"]["properties"]["tags"] == ["a"]

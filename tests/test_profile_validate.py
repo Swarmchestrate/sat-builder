@@ -86,6 +86,12 @@ def test_missing_required_value_is_reported_against_its_column(profile):
     assert ("missing", "place.city") in kinds(errors)
 
 
+def test_blank_required_value_is_reported_as_missing(profile):
+    payload = {**VALID, "place": {"city": ""}}
+    errors = validate(profile, "Thing", payload)
+    assert ("missing", "place.city") in kinds(errors)
+
+
 def test_missing_required_per_row_value_locates_the_row(profile):
     payload = {**VALID, "flavour": [{"name": "a", "cpu": 1}, {"name": "b"}]}
     errors = validate(profile, "Thing", payload)

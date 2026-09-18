@@ -295,7 +295,7 @@ def resolve_value(
             )
         source = rows[0]
 
-    return _coerce(source.get(binding.column), binding.definition)
+    return _coerce(_blank_as_none(source.get(binding.column)), binding.definition)
 
 
 def _list_value(
@@ -322,7 +322,7 @@ def _list_value(
         # primitive rather than a data type.
         values = [row.get(binding.column) for row in rows] if binding.column else rows
         flattened = [v for value in values for v in (value if isinstance(value, list) else [value])]
-        return [v for v in flattened if v is not None] or None
+        return [v for v in flattened if v not in (None, "")] or None
 
     entries = []
     for row in rows:
